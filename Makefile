@@ -1,4 +1,4 @@
-repo=aidonode-aido2_lf-gym_bridge
+repo=challenge-aido_lf-simulator-gym
 # repo=$(shell basename -s .git `git config --get remote.origin.url`)
 branch=$(shell git rev-parse --abbrev-ref HEAD)
 tag=duckietown/$(repo):$(branch)
