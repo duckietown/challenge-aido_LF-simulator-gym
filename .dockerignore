@@ -1,4 +1,4 @@
 **
 !*.py
-!requirements.txt
+!requirements*
 !launch.sh

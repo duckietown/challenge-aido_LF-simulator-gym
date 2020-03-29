@@ -4,40 +4,33 @@ import math
 import random
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field
+from typing import cast, Dict, Iterator, List, Tuple
 
+import cv2
 import numpy as np
 import yaml
 
 import geometry
-from aido_schemas import (Context, DB18RobotObservations, DB18SetRobotCommands, Duckiebot1Observations, EpisodeStart,
-                          GetRobotObservations, GetRobotState, JPGImage, Metric, PerformanceMetrics,
-                          protocol_simulator_duckiebot1, PWMCommands, RobotConfiguration, RobotInterfaceDescription,
-                          RobotName, RobotPerformance, RobotState, SetMap, SimulationState, SpawnRobot, StateDump, Step,
-                          wrap_direct)
+from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobotInfo, DTSimRobotState, DTSimState,
+                          DTSimStateDump, Duckiebot1Commands, Duckiebot1Observations, EpisodeStart,
+                          GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric, PerformanceMetrics,
+                          protocol_simulator_duckiebot1, PWMCommands, RGB, RobotConfiguration,
+                          RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState, SpawnRobot,
+                          Step)
+from aido_schemas.protocol_simulator import MOTION_PARKED
+from duckietown_world import PlatformDynamics, PlatformDynamicsFactory
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from gym_duckietown.envs import DuckietownEnv
+from gym_duckietown.graphics import create_frame_buffers
 from gym_duckietown.objects import DuckiebotObj
 from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT, Simulator,
                                       WHEEL_DIST)
+from zuper_commons.types import ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
+from zuper_nodes_wrapper import Context, wrap_direct
 
-
-@dataclass
-class MyRobotInfo:
-    pose: np.ndarray
-    velocity: np.ndarray
-    last_action: np.ndarray
-    wheels_velocities: np.ndarray
-
-
-@dataclass
-class MyRobotState(RobotState):
-    robot_name: RobotName
-    t_effective: float
-    state: MyRobotInfo
-
+ENABLE_DT_LOGGING = False
 
 @dataclass
 class GymDuckiebotSimulatorConfig:
@@ -56,29 +49,113 @@ class GymDuckiebotSimulatorConfig:
     render_dt: float = 1 / (15.0 * 7)
     minimum_physics_dt: float = 1 / 30.0
     blur_time: float = 0.05
+    topdown_resolution: int = 640
+
+    debug_no_video: bool = False
+
+
+class R:
+    obj: DuckiebotObj
+
+    def __init__(self, obj: DuckiebotObj):
+        self.obj = obj
+
+
+class NPC(R):
+    pass
+
+
+class PC(R):
+    spawn_configuration: RobotConfiguration
+    # ro: DB18RobotObservations = None
+    last_commands: Duckiebot1Commands
+    obs: Duckiebot1Observations
+
+    last_observations: np.array
+
+    last_observations_time: float = None
+
+    state: PlatformDynamics
+    blur_time: float
+
+    # history of "raw" observations and their timestamps
+    render_observations: List[np.array] = field(default_factory=list)
+    render_timestamps: List[float] = field(default_factory=list)
+
+    def __init__(self, obj: DuckiebotObj, spawn_configuration,
+                 pdf: PlatformDynamicsFactory,
+                 blur_time: float):
+        R.__init__(self, obj=obj)
+        self.blur_time = blur_time
+        black = RGB(.0, .0, .0)
+        leds = LEDSCommands(black, black, black, black, black)
+        wheels = PWMCommands(.0, .0)
+        self.last_commands = Duckiebot1Commands(LEDS=leds, wheels=wheels)
+        self.last_observations = None
+
+        self.last_observations_time = -1000
+        self.render_observations = []
+        self.render_timestamps = []
+        self.spawn_configuration = spawn_configuration
+
+        q = spawn_configuration.pose
+        v = spawn_configuration.velocity
+        c0 = q, v
+
+        self.state = pdf.initialize(c0=c0, t0=0)
+
+    def integrate(self, dt: float):
+        self.state = self.state.integrate(dt, self.last_commands.wheels)
+
+    def update_observations(self, context: Context, current_time: float):
+        # context.info(f'update_observations() at {current_time}')
+        assert self.render_observations
+
+        to_average = []
+        n = len(self.render_observations)
+        # context.info(str(self.render_timestamps))
+        # context.info(f'now {self.current_time}')
+        for i in range(n):
+            ti = self.render_timestamps[i]
+
+            if math.fabs(current_time - ti) < self.blur_time:
+                to_average.append(self.render_observations[i])
+
+        obs0 = to_average[0].astype('float32')
+
+        for obs in to_average[1:]:
+            obs0 += obs
+        obs = obs0 / len(to_average)
+        obs = obs.astype('uint8')
+        # context.info(f'update {obs.shape} {obs.dtype}')
+        jpg_data = rgb2jpg(obs)
+        camera = JPGImage(jpg_data)
+        self.obs = Duckiebot1Observations(camera)
+        self.last_observations_time = current_time
 
 
 class GymDuckiebotSimulator:
     config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig()
-
-    current_time: float
-    reward_cumulative: float
+    # name of the current episode
     episode_name: str
+    # current sim time
+    current_time: float
+    # last time we rendered the observations
+    last_render_time: float
+
+    # reward_cumulative: float
+
     env: Simulator
 
-    robot_name: Optional[RobotName]
-    spawn_pose: Any
-    npcs: Dict[RobotName, DuckiebotObj]
-    spawn_configuration: RobotConfiguration
+    pcs: Dict[RobotName, PC]
+    npcs: Dict[RobotName, NPC]
 
-    last_commands: np.array
-    last_action: np.array  # 2
-    last_render_time: float
-    render_timestamps: List[float]
-    render_observations: List[np.array]
-    last_observations: np.array
-    last_observations_time: float
-    ro: DB18RobotObservations
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self.npcs = {}
+        self.pcs = {}
 
     def init(self):
         env_parameters = self.config.env_parameters or {}
@@ -96,102 +173,58 @@ class GymDuckiebotSimulator:
         self.env = klass(**env_parameters)
 
     def on_received_seed(self, context: Context, data: int):
+        context.info(f'Using seed = {data!r}')
         random.seed(data)
         np.random.seed(data)
 
     def on_received_clear(self):
-        self.robot_name = None
-        self.spawn_pose = None
-        self.npcs = {}
+        self.clear()
 
     def on_received_set_map(self, data: SetMap):
-        yaml_str: str = data.map_data
+        yaml_str = cast(str, data.map_data)
 
         map_data = yaml.load(yaml_str, Loader=yaml.SafeLoader)
 
         self.env._interpret_map(map_data)
 
     def on_received_spawn_robot(self, data: SpawnRobot):
+        q = data.configuration.pose
+        pos, angle = self.env.weird_from_cartesian(q)
+
+        mesh = ObjMesh.get('duckiebot')
+        height = 0.12
         if data.playable:
-            self.spawn_configuration = data.configuration
-            self.robot_name = data.robot_name
+            kind = 'duckiebot-player'
+            static = True
         else:
-            q = data.configuration.pose
-            pos, angle = self.env.weird_from_cartesian(q)
+            kind = 'duckiebot'
 
-            mesh = ObjMesh.get('duckiebot')
+            static = data.motion == MOTION_PARKED
 
-            obj_desc = {
-                'kind': 'duckiebot',
-                'mesh': mesh,
-                'pos': pos,
-                'rotate': np.rad2deg(angle),
-                'height': 0.12,
-                'y_rot': np.rad2deg(angle),
-                'static': False,
-                'optional': False
-            }
+        obj_desc = {
+            'kind': kind,
+            'mesh': mesh,
+            'pos': pos,
+            'rotate': np.rad2deg(angle),
+            'height': height,
+            'y_rot': np.rad2deg(angle),
+            'static': static,
+            'optional': False,
+            'scale': height / mesh.max_coords[1]
+        }
 
-            obj_desc['scale'] = obj_desc['height'] / mesh.max_coords[1]
+        obj = DuckiebotObj(obj_desc, False, SAFETY_RAD_MULT, WHEEL_DIST,
+                           ROBOT_WIDTH, ROBOT_LENGTH)
 
-            obj = DuckiebotObj(obj_desc, False, SAFETY_RAD_MULT, WHEEL_DIST,
-                               ROBOT_WIDTH, ROBOT_LENGTH)
+        if data.playable:
+            pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
+            pc = PC(obj=obj, spawn_configuration=data.configuration, pdf=pdf,
+                    blur_time=self.config.blur_time)
 
-            self.npcs[data.robot_name] = obj
+            self.pcs[data.robot_name] = pc
+        else:
 
-    def _set_pose(self, context):
-        # TODO: check location
-        e0 = self.env
-
-        q = self.spawn_configuration.pose
-        v = self.spawn_configuration.velocity
-        c0 = q, v
-
-        p = get_DB18_nominal(delay=0.15)
-        self.state = p.initialize(c0=c0, t0=0)
-        cur_pos, cur_angle = e0.weird_from_cartesian(q)
-        q2 = e0.cartesian_from_weird(cur_pos, cur_angle)
-        e0.cur_pos = cur_pos
-        e0.cur_angle = cur_angle
-
-        i, j = e0.get_grid_coords(e0.cur_pos)
-        tile = e0._get_tile(i, j)
-
-        msg = ''
-        msg += f'\ni, j: {i}, {j}'
-        msg += '\nPose: %s' % geometry.SE2.friendly(q)
-        msg += '\nPose: %s' % geometry.SE2.friendly(q2)
-        msg += '\nCur pos: %s' % cur_pos
-        context.info(msg)
-
-        if tile is None:
-            msg = 'Current pose is not in a tile.'
-
-            raise Exception(msg)
-
-        kind = tile['kind']
-        # angle = tile['angle']
-
-        is_straight = kind.startswith('straight')
-
-        context.info('Sampled tile  %s %s %s' % (tile['coords'], tile['kind'], tile['angle']))
-
-        if not is_straight:
-            context.info('not on a straight tile')
-
-        valid = e0._valid_pose(cur_pos, cur_angle)
-        context.info('valid: %s' % valid)
-
-        try:
-            lp = e0.get_lane_pos2(e0.cur_pos, e0.cur_angle)
-            context.info('Sampled lane pose %s' % str(lp))
-            context.info('dist: %s' % lp.dist)
-        except NotInLane:
-            raise
-
-        if not valid:
-            msg = 'Not valid'
-            context.error(msg)
+            self.npcs[data.robot_name] = NPC(obj)
 
     def on_received_get_robot_interface_description(self, context: Context, data: RobotName):
         rid = RobotInterfaceDescription(robot_name=data, observations=JPGImage, commands=PWMCommands)
@@ -209,45 +242,57 @@ class GymDuckiebotSimulator:
 
     def on_received_episode_start(self, context: Context, data: EpisodeStart):
         self.current_time = 0.0
+        self.last_render_time = -100
         self.reward_cumulative = 0.0
         self.episode_name = data.episode_name
-        self.last_action = np.array([0.0, 0.0])
+        self.top_down_observation = None
+        TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
+        self.top_down_multi_fbo, self.top_down_final_fbo = create_frame_buffers(
+            TOPDOWN_SIZE[0],
+            TOPDOWN_SIZE[1],
+            4
+        )
+
+        self.top_down_img_array = np.zeros(shape=(TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3), dtype=np.uint8)
+
         try:
             self.env.reset()
         except BaseException as e:
             msg = 'Could not initialize environment'
             raise Exception(msg) from e
 
-        self._set_pose(context)
-        for robot_name, obj in self.npcs.items():
-            self.env.objects.append(obj)
+        for _, pc in self.pcs.items():
+            verify_pose_validity(context, self.env, pc.spawn_configuration)
+            self.env.objects.append(pc.obj)
 
-        self.last_observations_time = -100.0
-        self.last_render_time = -100.0
-
-        self.render_timestamps = []
-        self.render_observations = []
-        self.last_observations = None
+        for _, npc in self.npcs.items():
+            self.env.objects.append(npc.obj)
 
         self.render(context)
-        self.update_observations(self.config.blur_time, context)
+        for _, pc in self.pcs.items():
+            pc.update_observations(context, self.current_time)
 
     def on_received_step(self, context: Context, data: Step):
         delta_time = data.until - self.current_time
         if delta_time > 0:
-            self.update_physics_and_observations(until=data.until, context=context)
+            with timeit("update_physics_and_observations", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+                self.update_physics_and_observations(until=data.until, context=context)
         else:
             context.warning(f'Already at time {data.until}')
 
-        d = self.env._compute_done_reward()
+        with timeit("compute done reward", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+            d = self.env._compute_done_reward()
         self.reward_cumulative += d.reward * delta_time
         self.current_time = data.until
 
-    def update_physics_and_observations(self, until, context: Context):
+    def update_physics_and_observations(self, until: float, context: Context):
         # we are at self.current_time and need to update until "until"
         sensor_dt = self.config.camera_dt
         render_dt = self.config.render_dt
-        snapshots = list(get_snapshots(self.last_observations_time, self.current_time, until, render_dt))
+        # XXX
+        pc0 = list(self.pcs.values())[0]
+        last_observations_time = pc0.last_observations_time
+        snapshots = list(get_snapshots(last_observations_time, self.current_time, until, render_dt))
 
         steps = snapshots + [until]
         # context.info(f'current time: {self.current_time}')
@@ -258,103 +303,148 @@ class GymDuckiebotSimulator:
         for t1 in steps:
             delta_time = t1 - self.current_time
 
+            # we "update" the action in the simulator, but really
+            # we are going to move the robot ourself
             last_action = np.array([0.0, 0.0])
-            self.env.update_physics(last_action, delta_time=delta_time)
+            with timeit("update_physics", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+                self.env.update_physics(last_action, delta_time=delta_time)
 
-            self.state = self.state.integrate(delta_time, self.last_commands.wheels)
-            q = self.state.TSE2_from_state()[0]
-            cur_pos, cur_angle = self.env.weird_from_cartesian(q)
-            self.env.cur_pos = cur_pos
-            self.env.cur_angle = cur_angle
+            for pc_name, pc in self.pcs.items():
+                pc.integrate(delta_time)
 
             self.current_time = t1
 
+            # every render_dt, render the observations
             if self.current_time - self.last_render_time > render_dt:
-                self.render(context)
-            if self.current_time - self.last_observations_time >= sensor_dt:
-                self.update_observations(self.config.blur_time, context)
+                with timeit("render", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+                    self.render(context)
+                self.last_render_time = self.current_time
+
+            if self.current_time - last_observations_time >= sensor_dt:
+                for pc_name, pc in self.pcs.items():
+                    pc.update_observations(context, self.current_time)
+
+    def set_positions_and_commands(self, protagonist: str):
+        for pc_name, pc in self.pcs.items():
+            q, v = pc.state.TSE2_from_state()
+            cur_pos, cur_angle = self.env.weird_from_cartesian(q)
+
+            if pc_name == protagonist:
+                cur_pos[1] -= 1  # Z
+
+            pc.obj.pos = cur_pos
+            pc.obj.angle = cur_angle
+            pc.obj.y_rot = np.rad2deg(cur_angle)
+
+            if pc.last_commands is not None:
+                pc.obj.leds_color['front_right'] = get_rgb_tuple(pc.last_commands.LEDS.front_right)
+                pc.obj.leds_color['front_left'] = get_rgb_tuple(pc.last_commands.LEDS.front_left)
+                pc.obj.leds_color['back_right'] = get_rgb_tuple(pc.last_commands.LEDS.back_right)
+                pc.obj.leds_color['back_left'] = get_rgb_tuple(pc.last_commands.LEDS.back_left)
+                pc.obj.leds_color['center'] = get_rgb_tuple(pc.last_commands.LEDS.center)
 
     def render(self, context: Context):
         # context.info(f'render() at {self.current_time}')
 
-        with timeit('render_obs()', context, enabled=False):
-            obs = self.env.render_obs()
-        # context.info(f'render {obs.shape} {obs.dtype}')
-        self.render_observations.append(obs)
-        self.render_timestamps.append(self.current_time)
-        self.last_render_time = self.current_time
+        # for each robot that needs observations
 
-    def update_observations(self, blur_time: float, context: Context):
-        context.info(f'update_observations() at {self.current_time}')
-        assert self.render_observations
+        for pc_name, pc in self.pcs.items():
+            self.set_positions_and_commands(protagonist=pc_name)
 
-        to_average = []
-        n = len(self.render_observations)
-        # context.info(str(self.render_timestamps))
-        # context.info(f'now {self.current_time}')
-        for i in range(n):
-            ti = self.render_timestamps[i]
-            if math.fabs(self.current_time - ti) < blur_time:
-                to_average.append(self.render_observations[i])
+            # set the pose of this robot as the "protagonist"
+            q, v = pc.state.TSE2_from_state()
+            cur_pos, cur_angle = self.env.weird_from_cartesian(q)
+            self.env.cur_pos = cur_pos
+            self.env.cur_angle = cur_angle
 
-        obs0 = to_average[0].astype('float32')
-        context.info(str(obs0.shape))
-        for obs in to_average[1:]:
-            obs0 += obs
-        obs = obs0 / len(to_average)
-        obs = obs.astype('uint8')
-        # context.info(f'update {obs.shape} {obs.dtype}')
-        jpg_data = rgb2jpg(obs)
-        camera = JPGImage(jpg_data)
-        obs = Duckiebot1Observations(camera)
-        self.ro = DB18RobotObservations(self.robot_name, self.current_time, obs)
-        self.last_observations_time = self.current_time
+            # render the observations
+            with timeit('render_obs()', context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+                if self.config.debug_no_video:
+                    obs = np.zeros((480, 640, 3), 'uint8')
+                else:
+                    obs = self.env.render_obs()
+            # context.info(f'render {obs.shape} {obs.dtype}')
+            pc.render_observations.append(obs)
+            pc.render_timestamps.append(self.current_time)
+
+            self.set_positions_and_commands(protagonist="")
 
     def on_received_set_robot_commands(self, data: DB18SetRobotCommands, context: Context):
-        l, r = data.commands.wheels.motor_left, data.commands.wheels.motor_right
+        robot_name = data.robot_name
+        wheels = data.commands.wheels
+        l, r = wheels.motor_left, wheels.motor_right
 
         if max(math.fabs(l), math.fabs(r)) > 1:
             msg = f'Received invalid PWM commands. They should be between -1 and +1.' \
                   f' Received left = {l!r}, right = {r!r}.'
             context.error(msg)
             raise Exception(msg)
-        self.last_commands = data.commands
+        self.pcs[robot_name].last_commands = data.commands
 
     def on_received_get_robot_observations(self, context: Context, data: GetRobotObservations):
-        _ = data
+        robot_name = data.robot_name
+        if not robot_name in self.pcs:
+            msg = f'Cannot compute observations for non-pc {robot_name!r}'
+            raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
+                              npcs=list(self.npcs))
+        pc = self.pcs[robot_name]
+        ro = DB18RobotObservations(robot_name, pc.last_observations_time, pc.obs)
+
         # timing information
-        t = timestamp_from_seconds(self.last_observations_time)
+        t = timestamp_from_seconds(pc.last_observations_time)
         ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
         timing = TimingInfo(acquired={'image': ts})
-        context.write('robot_observations', self.ro, with_schema=True, timing=timing)
+        context.write('robot_observations', ro, with_schema=True, timing=timing)
 
-    def on_received_get_robot_state(self, context: Context, data: GetRobotState):
-        robot_name = data.robot_name
+    def _get_robot_state(self, robot_name: RobotName) -> DTSimRobotState:
         env = self.env
-        speed = env.speed
-        omega = 0.0  # XXX
-        if robot_name == self.robot_name:
-            q = env.cartesian_from_weird(env.cur_pos, env.cur_angle)
-            v = geometry.se2_from_linear_angular([speed, 0], omega)
-            state = MyRobotInfo(pose=q,
-                                velocity=v,
-                                last_action=env.last_action,
-                                wheels_velocities=env.wheelVels)
-            rs = MyRobotState(robot_name=robot_name,
-                              t_effective=self.current_time,
-                              state=state)
-        else:
-            obj: DuckiebotObj = self.npcs[robot_name]
+        if robot_name in self.pcs:
+            pc = self.pcs[robot_name]
+            q, v = pc.state.TSE2_from_state()
+            state = DTSimRobotInfo(pose=q,
+                                   velocity=v,
+                                   leds=pc.last_commands.LEDS,
+                                   pwm=pc.last_commands.wheels,
+                                   )
+            rs = DTSimRobotState(robot_name=robot_name,
+                                 t_effective=self.current_time,
+                                 state=state)
+        elif robot_name in self.npcs:
+            npc = self.npcs[robot_name]
+            # copy from simualtor
+            obj: DuckiebotObj = npc.obj
             q = env.cartesian_from_weird(obj.pos, obj.angle)
             # FIXME: how to get velocity?
             v = geometry.se2_from_linear_angular([0, 0], 0)
-            state = MyRobotInfo(pose=q,
-                                velocity=v,
-                                last_action=np.array([0, 0]),
-                                wheels_velocities=np.array([0, 0]))
-            rs = MyRobotState(robot_name=robot_name,
-                              t_effective=self.current_time,
-                              state=state)
+
+            def get(name) -> RGB:
+                c = obj.leds_color[name]
+                return RGB(float(c[0]), float(c[1]), float(c[2]))
+
+            leds = LEDSCommands(front_right=get('front_right'),
+                                front_left=get('front_left'),
+                                center=get('center'),
+                                back_left=get('back_left'),
+                                back_right=get('back_right'))
+            wheels = PWMCommands(0.0, 0.0)
+            state = DTSimRobotInfo(pose=q,
+                                   velocity=v,
+                                   leds=leds,
+                                   pwm=wheels,
+                                   )
+            rs = DTSimRobotState(robot_name=robot_name,
+                                 t_effective=self.current_time,
+                                 state=state)
+        else:
+            msg = f'Cannot compute robot state for {robot_name!r}'
+            raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
+                              npcs=list(self.npcs))
+        return rs
+
+    def on_received_get_robot_state(self, context: Context, data: GetRobotState):
+        robot_name = data.robot_name
+
+        rs = self._get_robot_state(robot_name)
         # timing information
         t = timestamp_from_seconds(self.current_time)
         ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
@@ -362,7 +452,14 @@ class GymDuckiebotSimulator:
         context.write('robot_state', rs, timing=timing)  # , with_schema=True)
 
     def on_received_dump_state(self, context: Context):
-        context.write('dump_state', StateDump(None))
+        duckiebots = {}
+        for robot_name in self.pcs:
+            duckiebots[robot_name] = self._get_robot_state(robot_name).state
+        for robot_name in self.npcs:
+            duckiebots[robot_name] = self._get_robot_state(robot_name).state
+        simstate = DTSimState(t_effective=self.current_time, duckiebots=duckiebots)
+        res = DTSimStateDump(simstate)
+        context.write('state_dump', res)
 
     def on_received_get_sim_state(self, context: Context):
         d = self.env._compute_done_reward()
@@ -371,6 +468,27 @@ class GymDuckiebotSimulator:
         done_code = d.done_code
         sim_state = SimulationState(done, done_why, done_code)
         context.write('sim_state', sim_state)
+
+    def on_received_get_ui_image(self, context: Context):
+
+        TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
+        if self.config.debug_no_video:
+            shape = TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3
+            top_down_observation  = np.zeros(shape, 'uint8')
+        else:
+            with timeit('render_top_down', context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+                top_down_observation = self.env._render_img(
+                    TOPDOWN_SIZE[0],
+                    TOPDOWN_SIZE[1],
+                    self.top_down_multi_fbo,
+                    self.top_down_final_fbo,
+                    self.top_down_img_array,
+                    top_down=True
+                )
+
+        jpg_data = rgb2jpg(top_down_observation)
+        jpg = JPGImage(jpg_data)
+        context.write('ui_image', jpg)
 
 
 def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: float) -> Iterator[float]:
@@ -383,7 +501,6 @@ def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: f
 
 # noinspection PyUnresolvedReferences
 def rgb2jpg(rgb: np.ndarray) -> bytes:
-    import cv2
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     compress = cv2.imencode('.jpg', bgr)[1]
     jpg_data = np.array(compress).tostring()
@@ -405,10 +522,60 @@ def timeit(s, context, min_warn=0.01, enabled=True):
         context.info(msg)
 
 
+def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
+    q = spawn_configuration.pose
+    cur_pos, cur_angle = env.weird_from_cartesian(q)
+    q2 = env.cartesian_from_weird(cur_pos, cur_angle)
+
+    # okaysh : set at least one robot to the pose
+    env.cur_pos = cur_pos
+    env.cur_angle = cur_angle
+
+    i, j = env.get_grid_coords(env.cur_pos)
+    tile = env._get_tile(i, j)
+
+    msg = ''
+    msg += f'\ni, j: {i}, {j}'
+    msg += '\nPose: %s' % geometry.SE2.friendly(q)
+    msg += '\nPose: %s' % geometry.SE2.friendly(q2)
+    msg += '\nCur pos: %s' % cur_pos
+    context.info(msg)
+
+    if tile is None:
+        msg = 'Current pose is not in a tile: \n' + msg
+        raise Exception(msg)
+
+    kind = tile['kind']
+    is_straight = kind.startswith('straight')
+
+    context.info('Sampled tile  %s %s %s' % (tile['coords'], tile['kind'], tile['angle']))
+
+    if not is_straight:
+        context.info('not on a straight tile')
+
+    valid = env._valid_pose(cur_pos, cur_angle)
+    context.info('valid: %s' % valid)
+
+    try:
+        lp = env.get_lane_pos2(cur_pos, cur_angle)
+        context.info('Sampled lane pose %s' % str(lp))
+        context.info('dist: %s' % lp.dist)
+    except NotInLane:
+        raise
+
+    if not valid:
+        msg = 'Not valid'
+        context.error(msg)
+
+
+def get_rgb_tuple(x: RGB) -> Tuple[float, float, float]:
+    return x.r, x.g, x.b
+
+
 def main():
     node = GymDuckiebotSimulator()
+    description = ''
     protocol = protocol_simulator_duckiebot1
-    protocol.outputs['robot_state'] = MyRobotState
     wrap_direct(node=node, protocol=protocol)
 
 
