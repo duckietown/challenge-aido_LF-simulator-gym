@@ -433,7 +433,8 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     delta = t1 - t0
     msg = 'timeit: %d ms for %s' % ((t1 - t0) * 1000, s)
     if delta > min_warn:
-        context.info(msg)
+        #context.info(msg)
+        logger.info(msg)
 
 
 def main():
