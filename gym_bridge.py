@@ -298,7 +298,7 @@ class GymDuckiebotSimulator:
                 self.update_observations(self.config.blur_time, context)
                 logger.debug(f" After update_obs subfun: {datetime.now() - self.starttime}")
 
-            logger.info(f"After a step: {datetime.now() - self.starttime}")
+            logger.debug(f"After a step: {datetime.now() - self.starttime}")
 
     def render(self, context: Context):
         # context.info(f'render() at {self.current_time}')
