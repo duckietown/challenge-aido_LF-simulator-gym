@@ -3,6 +3,12 @@ repo=challenge-aido_lf-simulator-gym
 branch=$(shell git rev-parse --abbrev-ref HEAD)
 tag=duckietown/$(repo):$(branch)
 
+mybuild:
+	docker build -t courchesnea/dt-simbridge:test .
+
+run:
+	docker run -it courchesnea/dt-simbridge:test /bin/bash
+
 build:
 	docker build --pull -t $(tag) .
 

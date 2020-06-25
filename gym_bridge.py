@@ -11,17 +11,29 @@ import numpy as np
 import yaml
 
 import geometry
-from aido_schemas import (Context, DB18RobotObservations, DB18SetRobotCommands, Duckiebot1Observations, EpisodeStart,
+from aido_schemas import (JPGImage, DB18RobotObservations, DB18SetRobotCommands, Duckiebot1Observations, EpisodeStart,
                           GetRobotObservations, GetRobotState, JPGImage, Metric, PerformanceMetrics,
                           protocol_simulator_duckiebot1, PWMCommands, RobotConfiguration, RobotInterfaceDescription,
-                          RobotName, RobotPerformance, RobotState, SetMap, SimulationState, SpawnRobot, StateDump, Step,
-                          wrap_direct)
+                          RobotName, RobotPerformance, RobotState, SetMap, SimulationState, SpawnRobot, StateDump, Step)
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.objects import DuckiebotObj
 from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT, Simulator,
                                       WHEEL_DIST)
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
+from zuper_nodes_wrapper import Context, wrap_direct
+import logging
+import os
+from datetime import datetime
+
+
+logging.basicConfig()
+logger = logging.getLogger('launcher')
+LOGLEVEL = os.environ.get('LOGLEVEL', 'DEBUG').upper()
+logger.setLevel(LOGLEVEL)
+logger.warning("Logger set to level: "+str(logger.level))
+if logger.level > 20:
+    logger.warning("Logging is set to {}, info msg will no be shown".format(LOGLEVEL))
 
 
 @dataclass
@@ -234,12 +246,16 @@ class GymDuckiebotSimulator:
 
     def on_received_step(self, context: Context, data: Step):
         delta_time = data.until - self.current_time
+        self.starttime = datetime.now()
+        logger.debug(f"Start_time: {self.starttime} (new 0)")
         if delta_time > 0:
             self.update_physics_and_observations(until=data.until, context=context)
         else:
             context.warning(f'Already at time {data.until}')
 
+        logger.debug(f"Before computing reward: {datetime.now() - self.starttime}")
         d = self.env._compute_done_reward()
+        logger.debug(f"after computing reward: {datetime.now() - self.starttime}")
         self.reward_cumulative += d.reward * delta_time
         self.current_time = data.until
 
@@ -258,10 +274,14 @@ class GymDuckiebotSimulator:
         for t1 in steps:
             delta_time = t1 - self.current_time
 
+
             last_action = np.array([0.0, 0.0])
+            logger.debug(f" Before the update phys subfun: {datetime.now() - self.starttime}")
             self.env.update_physics(last_action, delta_time=delta_time)
+            logger.debug(f" After the update phys subfun: {datetime.now() - self.starttime}")
 
             self.state = self.state.integrate(delta_time, self.last_commands.wheels)
+            logger.debug(f" After the integrate subfun: {datetime.now() - self.starttime}")
             q = self.state.TSE2_from_state()[0]
             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
             self.env.cur_pos = cur_pos
@@ -270,9 +290,15 @@ class GymDuckiebotSimulator:
             self.current_time = t1
 
             if self.current_time - self.last_render_time > render_dt:
+                logger.debug(f" Before rander: {datetime.now() - self.starttime}")
                 self.render(context)
+                logger.debug(f" After render: {datetime.now() - self.starttime}")
             if self.current_time - self.last_observations_time >= sensor_dt:
+                logger.debug(f" Before update_obs subfun: {datetime.now() - self.starttime}")
                 self.update_observations(self.config.blur_time, context)
+                logger.debug(f" After update_obs subfun: {datetime.now() - self.starttime}")
+
+            logger.info(f"After a step: {datetime.now() - self.starttime}")
 
     def render(self, context: Context):
         # context.info(f'render() at {self.current_time}')
@@ -285,7 +311,8 @@ class GymDuckiebotSimulator:
         self.last_render_time = self.current_time
 
     def update_observations(self, blur_time: float, context: Context):
-        context.info(f'update_observations() at {self.current_time}')
+        # context.info(f'update_observations() at {self.current_time}')
+        logger.debug(f'update_observations() at {self.current_time}')
         assert self.render_observations
 
         to_average = []
@@ -298,7 +325,8 @@ class GymDuckiebotSimulator:
                 to_average.append(self.render_observations[i])
 
         obs0 = to_average[0].astype('float32')
-        context.info(str(obs0.shape))
+        # context.info(str(obs0.shape))
+        logger.debug(str(obs0.shape))
         for obs in to_average[1:]:
             obs0 += obs
         obs = obs0 / len(to_average)
@@ -371,6 +399,9 @@ class GymDuckiebotSimulator:
         done_code = d.done_code
         sim_state = SimulationState(done, done_why, done_code)
         context.write('sim_state', sim_state)
+
+    def on_received_get_ui_image(self, contect: Context):
+        context.write("ui_image", JPGImage())
 
 
 def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: float) -> Iterator[float]:
