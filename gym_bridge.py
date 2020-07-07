@@ -9,12 +9,14 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import numpy as np
 import yaml
+import pprint
 
 import geometry
 from aido_schemas import (JPGImage, DB18RobotObservations, DB18SetRobotCommands, Duckiebot1Observations, EpisodeStart,
                           GetRobotObservations, GetRobotState, JPGImage, Metric, PerformanceMetrics,
                           protocol_simulator_duckiebot1, PWMCommands, RobotConfiguration, RobotInterfaceDescription,
                           RobotName, RobotPerformance, RobotState, SetMap, SimulationState, SpawnRobot, StateDump, Step)
+from aido_schemas.utils import TimeTracker
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.objects import DuckiebotObj
@@ -273,14 +275,16 @@ class GymDuckiebotSimulator:
 
         for t1 in steps:
             delta_time = t1 - self.current_time
-
+            tt = TimeTracker(0)
 
             last_action = np.array([0.0, 0.0])
             logger.debug(f" Before the update phys subfun: {datetime.now() - self.starttime}")
-            self.env.update_physics(last_action, delta_time=delta_time)
+            with(tt.measure("env.update_physics")):
+                self.env.update_physics(last_action, delta_time=delta_time)
             logger.debug(f" After the update phys subfun: {datetime.now() - self.starttime}")
 
-            self.state = self.state.integrate(delta_time, self.last_commands.wheels)
+            with(tt.measure("integrate")):
+                self.state = self.state.integrate(delta_time, self.last_commands.wheels)
             logger.debug(f" After the integrate subfun: {datetime.now() - self.starttime}")
             q = self.state.TSE2_from_state()[0]
             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
@@ -288,14 +292,15 @@ class GymDuckiebotSimulator:
             self.env.cur_angle = cur_angle
 
             self.current_time = t1
-
             if self.current_time - self.last_render_time > render_dt:
                 logger.debug(f" Before rander: {datetime.now() - self.starttime}")
-                self.render(context)
+                with(tt.measure("render")):
+                    self.render(context)
                 logger.debug(f" After render: {datetime.now() - self.starttime}")
             if self.current_time - self.last_observations_time >= sensor_dt:
                 logger.debug(f" Before update_obs subfun: {datetime.now() - self.starttime}")
-                self.update_observations(self.config.blur_time, context)
+                with(tt.measure("update_obs")):
+                    self.update_observations(self.config.blur_time, context)
                 logger.debug(f" After update_obs subfun: {datetime.now() - self.starttime}")
 
             logger.debug(f"After a step: {datetime.now() - self.starttime}")
@@ -433,8 +438,8 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     delta = t1 - t0
     msg = 'timeit: %d ms for %s' % ((t1 - t0) * 1000, s)
     if delta > min_warn:
-        #context.info(msg)
-        logger.info(msg)
+        context.info(msg)
+        #logger.info(msg)
 
 
 def main():
