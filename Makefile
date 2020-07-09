@@ -1,10 +1,15 @@
 repo=challenge-aido_lf-simulator-gym
 # repo=$(shell basename -s .git `git config --get remote.origin.url`)
 branch=$(shell git rev-parse --abbrev-ref HEAD)
-tag=duckietown/$(repo):$(branch)
+# tag=duckietown/$(repo):$(branch)
+tag=courchesnea/$(repo):$(branch)
+
 
 build:
 	docker build --pull -t $(tag) .
+
+run:
+	docker run -it $(tag) /bin/bash
 
 build-no-cache:
 	docker build --pull  -t $(tag)  --no-cache .
