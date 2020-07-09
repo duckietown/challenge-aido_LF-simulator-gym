@@ -273,6 +273,10 @@ class GymDuckiebotSimulator:
         # context.info(f'    last_obs: {self.last_observations_time}')
         # context.info(f'   snapshots: {snapshots}')
 
+        # Test temp:
+        # For local simulation, only one compute is enough
+        steps = [steps[-1]]
+
         for t1 in steps:
             delta_time = t1 - self.current_time
             tt = TimeTracker(0)
