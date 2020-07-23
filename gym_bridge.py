@@ -73,7 +73,12 @@ class GymDuckiebotSimulatorConfig:
 
 
 class GymDuckiebotSimulator:
-    config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig()
+    renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '1'))
+    blurring = os.environ.get('BLURRING', 'True').lower() == "true"
+    config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
+            render_dt=float(1 / ( 15.0 * renders_per_dt)),
+            blur_time=0.05 if blurring else 0.01
+        )
 
     current_time: float
     reward_cumulative: float
@@ -275,7 +280,7 @@ class GymDuckiebotSimulator:
 
         # Test temp:
         # For local simulation, only one compute is enough
-        steps = [steps[-1]]
+        #steps = [steps[-1]]
 
         for t1 in steps:
             delta_time = t1 - self.current_time
