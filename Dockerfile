@@ -1,5 +1,4 @@
 FROM duckietown/gym-duckietown-server-python3:daffy-aido4
-# FROM courchesnea/gymtest:test
 
 
 WORKDIR /project

@@ -79,7 +79,6 @@ class GymDuckiebotSimulator:
             render_dt=float(1 / ( 15.0 * renders_per_dt)),
             blur_time=0.05 if blurring else 0.01
         )
-
     current_time: float
     reward_cumulative: float
     episode_name: str
@@ -278,10 +277,6 @@ class GymDuckiebotSimulator:
         # context.info(f'    last_obs: {self.last_observations_time}')
         # context.info(f'   snapshots: {snapshots}')
 
-        # Test temp:
-        # For local simulation, only one compute is enough
-        #steps = [steps[-1]]
-
         for t1 in steps:
             delta_time = t1 - self.current_time
             tt = TimeTracker(0)
@@ -453,7 +448,6 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     msg = 'timeit: %d ms for %s' % ((t1 - t0) * 1000, s)
     if delta > min_warn:
         context.info(msg)
-        #logger.info(msg)
 
 
 def main():
