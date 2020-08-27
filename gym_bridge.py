@@ -335,15 +335,20 @@ class GymDuckiebotSimulator:
         # context.info(f'now {self.current_time}')
         for i in range(n):
             ti = self.render_timestamps[i]
+
             if math.fabs(self.current_time - ti) < blur_time:
                 to_average.append(self.render_observations[i])
 
-        obs0 = to_average[0].astype('float32')
-        # context.info(str(obs0.shape))
-        logger.debug(str(obs0.shape))
-        for obs in to_average[1:]:
-            obs0 += obs
-        obs = obs0 / len(to_average)
+        try:
+            obs0 = to_average[0].astype('float32')
+            # context.info(str(obs0.shape))
+            logger.debug(str(obs0.shape))
+            for obs in to_average[1:]:
+                obs0 += obs
+            obs = obs0 / len(to_average)
+        except IndexError:
+            obs = self.render_observations[0]
+
         obs = obs.astype('uint8')
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
