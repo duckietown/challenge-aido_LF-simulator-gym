@@ -253,15 +253,15 @@ class GymDuckiebotSimulator:
     def on_received_step(self, context: Context, data: Step):
         delta_time = data.until - self.current_time
         self.starttime = datetime.now()
-        logger.debug(f"Start_time: {self.starttime} (new 0)")
+        #logger.debug(f"Start_time: {self.starttime} (new 0)")
         if delta_time > 0:
             self.update_physics_and_observations(until=data.until, context=context)
         else:
             context.warning(f'Already at time {data.until}')
 
-        logger.debug(f"Before computing reward: {datetime.now() - self.starttime}")
+        #logger.debug(f"Before computing reward: {datetime.now() - self.starttime}")
         d = self.env._compute_done_reward()
-        logger.debug(f"after computing reward: {datetime.now() - self.starttime}")
+        #logger.debug(f"after computing reward: {datetime.now() - self.starttime}")
         self.reward_cumulative += d.reward * delta_time
         self.current_time = data.until
 
@@ -282,14 +282,14 @@ class GymDuckiebotSimulator:
             tt = TimeTracker(0)
 
             last_action = np.array([0.0, 0.0])
-            logger.debug(f" Before the update phys subfun: {datetime.now() - self.starttime}")
+            #logger.debug(f" Before the update phys subfun: {datetime.now() - self.starttime}")
             with(tt.measure("env.update_physics")):
                 self.env.update_physics(last_action, delta_time=delta_time)
-            logger.debug(f" After the update phys subfun: {datetime.now() - self.starttime}")
+            #logger.debug(f" After the update phys subfun: {datetime.now() - self.starttime}")
 
             with(tt.measure("integrate")):
                 self.state = self.state.integrate(delta_time, self.last_commands.wheels)
-            logger.debug(f" After the integrate subfun: {datetime.now() - self.starttime}")
+            #logger.debug(f" After the integrate subfun: {datetime.now() - self.starttime}")
             q = self.state.TSE2_from_state()[0]
             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
             self.env.cur_pos = cur_pos
@@ -297,17 +297,17 @@ class GymDuckiebotSimulator:
 
             self.current_time = t1
             if self.current_time - self.last_render_time > render_dt:
-                logger.debug(f" Before rander: {datetime.now() - self.starttime}")
+                #logger.debug(f" Before rander: {datetime.now() - self.starttime}")
                 with(tt.measure("render")):
                     self.render(context)
-                logger.debug(f" After render: {datetime.now() - self.starttime}")
+                #logger.debug(f" After render: {datetime.now() - self.starttime}")
             if self.current_time - self.last_observations_time >= sensor_dt:
-                logger.debug(f" Before update_obs subfun: {datetime.now() - self.starttime}")
+                #logger.debug(f" Before update_obs subfun: {datetime.now() - self.starttime}")
                 with(tt.measure("update_obs")):
                     self.update_observations(self.config.blur_time, context)
-                logger.debug(f" After update_obs subfun: {datetime.now() - self.starttime}")
+                #logger.debug(f" After update_obs subfun: {datetime.now() - self.starttime}")
 
-            logger.debug(f"After a step: {datetime.now() - self.starttime}")
+            #logger.debug(f"After a step: {datetime.now() - self.starttime}")
 
     def render(self, context: Context):
         # context.info(f'render() at {self.current_time}')
@@ -321,7 +321,7 @@ class GymDuckiebotSimulator:
 
     def update_observations(self, blur_time: float, context: Context):
         # context.info(f'update_observations() at {self.current_time}')
-        logger.debug(f'update_observations() at {self.current_time}')
+        #logger.debug(f'update_observations() at {self.current_time}')
         assert self.render_observations
 
         to_average = []
@@ -337,7 +337,7 @@ class GymDuckiebotSimulator:
         try:
             obs0 = to_average[0].astype('float32')
             # context.info(str(obs0.shape))
-            logger.debug(str(obs0.shape))
+            #logger.debug(str(obs0.shape))
             for obs in to_average[1:]:
                 obs0 += obs
             obs = obs0 / len(to_average)
