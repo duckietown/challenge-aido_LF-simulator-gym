@@ -4,7 +4,7 @@ duckietown-world-daffy
 zuper-typing-z6
 zuper-ipce-z6
 zuper-nodes-z6
-duckietown-gym-daffy 
+duckietown-gym-daffy
 pipdeptree
 
 
