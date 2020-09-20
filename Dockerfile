@@ -6,8 +6,9 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 
 WORKDIR /project
 
+RUN apt-get update && apt-get install -y gcc
 COPY requirements* ./
-RUN pip install -r requirements.resolved
+RUN pip install --use-feature=2020-resolver -r requirements.resolved
 RUN pipdeptree
 
 
