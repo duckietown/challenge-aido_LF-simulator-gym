@@ -12,6 +12,8 @@ import numpy as np
 import yaml
 
 import geometry
+from zuper_commons.logs import ZLogger
+
 from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobotInfo, DTSimRobotState, DTSimState,
                           DTSimStateDump, Duckiebot1Commands, Duckiebot1Observations, EpisodeStart,
                           GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric, PerformanceMetrics,
@@ -19,7 +21,9 @@ from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobo
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState, SpawnRobot,
                           Step)
 from aido_schemas.protocol_simulator import MOTION_PARKED
-from duckietown_world import PlatformDynamics, PlatformDynamicsFactory
+from duckietown_world import (construct_map, DuckietownMap, get_lane_poses, GetLanePoseResult,
+                              PlatformDynamics,
+                              PlatformDynamicsFactory)
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
@@ -29,6 +33,8 @@ from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WI
 from zuper_commons.types import ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
 from zuper_nodes_wrapper import Context, wrap_direct
+
+logger = ZLogger(__name__)
 
 ENABLE_DT_LOGGING = False
 
@@ -149,6 +155,7 @@ class GymDuckiebotSimulator:
 
     pcs: Dict[RobotName, PC]
     npcs: Dict[RobotName, NPC]
+    dm: DuckietownMap
 
     def __init__(self):
         self.clear()
@@ -184,7 +191,7 @@ class GymDuckiebotSimulator:
         yaml_str = cast(str, data.map_data)
 
         map_data = yaml.load(yaml_str, Loader=yaml.SafeLoader)
-
+        self.dm = construct_map(map_data)
         self.env._interpret_map(map_data)
 
     def on_received_spawn_robot(self, data: SpawnRobot):
@@ -261,7 +268,13 @@ class GymDuckiebotSimulator:
             msg = 'Could not initialize environment'
             raise Exception(msg) from e
 
-        for _, pc in self.pcs.items():
+        for robot, pc in self.pcs.items():
+            q, v = pc.state.TSE2_from_state()
+            lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
+            if not lprs:
+                msg = f'Robot {robot} is out of the lane.'
+                raise ZException(msg, robot=robot, pc=pc)
+
             verify_pose_validity(context, self.env, pc.spawn_configuration)
             self.env.objects.append(pc.obj)
 
@@ -426,7 +439,7 @@ class GymDuckiebotSimulator:
                                 center=get('center'),
                                 back_left=get('back_left'),
                                 back_right=get('back_right'))
-            wheels = PWMCommands(0.0, 0.0)
+            wheels = PWMCommands(0.0, 0.0) # XXX
             state = DTSimRobotInfo(pose=q,
                                    velocity=v,
                                    leds=leds,
@@ -462,10 +475,23 @@ class GymDuckiebotSimulator:
         context.write('state_dump', res)
 
     def on_received_get_sim_state(self, context: Context):
-        d = self.env._compute_done_reward()
-        done = d.done
-        done_why = d.done_why
-        done_code = d.done_code
+        done = False
+        done_why = None
+        done_code = None
+        for robot, pc in self.pcs.items():
+            q, v = pc.state.TSE2_from_state()
+            lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
+            if not lprs:
+                msg = f'Robot {robot} is out of the lane.'
+                logger.error(msg, pc=pc)
+                done = True
+                done_why = msg
+                done_code = 'out-of-lane'
+        #
+        # d = self.env._compute_done_reward()
+        # done = d.done
+        # done_why = d.done_why
+        # done_code = d.done_code
         sim_state = SimulationState(done, done_why, done_code)
         context.write('sim_state', sim_state)
 
