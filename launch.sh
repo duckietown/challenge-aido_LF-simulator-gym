@@ -20,20 +20,20 @@ rm -f /tmp/.X99-lock || true
 echo "$prefix Starting xvfb"
 Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
 xvfb=$!
-echo "$prefix Started xvfb with PID $xvfb"
+echo "$prefix Started xvfb with PID $xvfb" 1>&2
 export DISPLAY=:99
 
 
-echo "$prefix Now running gym_bridge.py"
+echo "$prefix Now running gym_bridge.py" 1>&2
 python3 gym_bridge.py
 ret=$?
-echo "$prefix gym_simulation_launcher terminated with return code $ret"
+echo "$prefix gym_simulation_launcher terminated with return code $ret" 1>&2
 
 
-echo "$prefix Killing xvfb..."
+echo "$prefix Killing xvfb..." 1>&2
 kill $xvfb
 
-echo "$prefix Killed."
+echo "$prefix Killed." 1>&2
 
-echo "$prefix Graceful exit of launch.sh with return code $ret"
+echo "$prefix Graceful exit of launch.sh with return code $ret" 1>&2
 exit $ret
