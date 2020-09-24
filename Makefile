@@ -13,7 +13,7 @@ build_options =  \
 	--build-arg AIDO_REGISTRY=$(AIDO_REGISTRY) \
 	--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL)
 
-build: update-reqs
+build:
 	docker build --pull -t $(tag) $(build_options) .
 
 run:
