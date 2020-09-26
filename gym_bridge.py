@@ -146,7 +146,7 @@ class PC(R):
 
 class GymDuckiebotSimulator:
 
-    renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '1'))
+    renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '2'))
     blurring = os.environ.get('BLURRING', 'True').lower() == "true"
     config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
             render_dt=float(1 / ( 15.0 * renders_per_dt)),
