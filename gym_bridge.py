@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import os
 import random
 import time
 from contextlib import contextmanager
@@ -127,11 +128,14 @@ class PC(R):
             if math.fabs(current_time - ti) < self.blur_time:
                 to_average.append(self.render_observations[i])
 
-        obs0 = to_average[0].astype('float32')
+        try:
+            obs0 = to_average[0].astype('float32')
 
-        for obs in to_average[1:]:
-            obs0 += obs
-        obs = obs0 / len(to_average)
+            for obs in to_average[1:]:
+                obs0 += obs
+            obs = obs0 / len(to_average)
+        except IndexError:
+            obs = self.render_observations[0]
         obs = obs.astype('uint8')
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
@@ -141,7 +145,15 @@ class PC(R):
 
 
 class GymDuckiebotSimulator:
-    config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig()
+
+    renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '1'))
+    blurring = os.environ.get('BLURRING', 'True').lower() == "true"
+    config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
+            render_dt=float(1 / ( 15.0 * renders_per_dt)),
+            blur_time=0.05 if blurring else 0.01
+        )
+    current_time: float
+    reward_cumulative: float
     # name of the current episode
     episode_name: str
     # current sim time
