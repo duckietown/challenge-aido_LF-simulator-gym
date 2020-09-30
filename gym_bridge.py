@@ -64,7 +64,7 @@ class GymDuckiebotSimulatorConfig:
 
     debug_profile: bool = False
     """ Profile the rendering and other gym operations"""
-
+    debug_profile_summary: bool = False
 
 class R:
     obj: DuckiebotObj
@@ -150,12 +150,13 @@ class PC(R):
 
 
 class GymDuckiebotSimulator:
-    renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '2'))
-    blurring = os.environ.get('BLURRING', 'True').lower() == "true"
-    config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
-        render_dt=float(1 / (15.0 * renders_per_dt)),
-        blur_time=0.05 if blurring else 0.01
-    )
+    # renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '2'))
+    # blurring = os.environ.get('BLURRING', 'True').lower() == "true"
+    # config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
+    #     render_dt=float(1 / (15.0 * renders_per_dt)),
+    #     blur_time=0.05 if blurring else 0.01
+    # )
+    config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig()
     current_time: float
     reward_cumulative: float
     # name of the current episode
@@ -306,17 +307,32 @@ class GymDuckiebotSimulator:
     def on_received_step(self, context: Context, data: Step):
         profile_enabled = self.config.debug_profile
         delta_time = data.until - self.current_time
-        if delta_time > 0:
+        step = f'stepping forward {int(delta_time*1000)} s of simulation time'
+        t0 = time.time()
+        with timeit(step, context, min_warn=0, enabled=True):
 
-            with timeit("update_physics_and_observations", context, min_warn=0, enabled=profile_enabled):
-                self.update_physics_and_observations(until=data.until, context=context)
-        else:
-            context.warning(f'Already at time {data.until}')
+            if delta_time > 0:
+                step = 'update_physics_and_observations'
+                with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                    self.update_physics_and_observations(until=data.until, context=context)
+            else:
+                context.warning(f'Already at time {data.until}')
 
-        with timeit("compute done reward", context, min_warn=0, enabled=profile_enabled):
-            d = self.env._compute_done_reward()
-        self.reward_cumulative += d.reward * delta_time
-        self.current_time = data.until
+            step = 'on_received_step/_compute_done_reward'
+            with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                d = self.env._compute_done_reward()
+            self.reward_cumulative += d.reward * delta_time
+            self.current_time = data.until
+        dt_real = time.time() - t0
+
+        if self.config.debug_profile_summary:
+            ratio = delta_time  / dt_real
+            msg = f"""
+                Stepping forward {delta_time:.3f} s of simulation time took {dt_real:.3f} seconds.
+                *If this was the only step* (excluding, e.g. how long it takes the agent to compute)
+                then the simulation speedup is {ratio:.2f} x
+            """
+            context.info(msg)
 
     def update_physics_and_observations(self, until: float, context: Context):
         # we are at self.current_time and need to update until "until"
@@ -334,13 +350,14 @@ class GymDuckiebotSimulator:
         # context.info(f'   snapshots: {snapshots}')
         profile_enabled = self.config.debug_profile
 
-        for t1 in steps:
+        for i, t1 in enumerate(steps):
             delta_time = t1 - self.current_time
 
             # we "update" the action in the simulator, but really
             # we are going to move the robot ourself
             last_action = np.array([0.0, 0.0])
-            with timeit("update_physics", context, min_warn=0, enabled=profile_enabled):
+            step = f'update_physics_and_observations/step{i}/update_physics'
+            with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 self.env.update_physics(last_action, delta_time=delta_time)
 
             for pc_name, pc in self.pcs.items():
@@ -350,7 +367,8 @@ class GymDuckiebotSimulator:
 
             # every render_dt, render the observations
             if self.current_time - self.last_render_time > render_dt:
-                with timeit("render", context, min_warn=0, enabled=profile_enabled):
+                step = f'update_physics_and_observations/step{i}/render'
+                with timeit(step, context, min_warn=0, enabled=profile_enabled):
                     self.render(context)
                 self.last_render_time = self.current_time
 
@@ -383,7 +401,7 @@ class GymDuckiebotSimulator:
         # for each robot that needs observations
         profile_enabled = self.config.debug_profile
 
-        for pc_name, pc in self.pcs.items():
+        for i, (pc_name, pc) in enumerate(self.pcs.items()):
             self.set_positions_and_commands(protagonist=pc_name)
 
             # set the pose of this robot as the "protagonist"
@@ -393,10 +411,12 @@ class GymDuckiebotSimulator:
             self.env.cur_angle = cur_angle
 
             # render the observations
-            with timeit('render_obs()', context, min_warn=0, enabled=profile_enabled):
-                if self.config.debug_no_video:
-                    obs = np.zeros((480, 640, 3), 'uint8')
-                else:
+
+            if self.config.debug_no_video:
+                obs = np.zeros((480, 640, 3), 'uint8')
+            else:
+                step = f'render/{i}-pc_name/render_obs'
+                with timeit(step, context, min_warn=0, enabled=profile_enabled):
                     obs = self.env.render_obs()
             # context.info(f'render {obs.shape} {obs.dtype}')
             pc.render_observations.append(obs)
@@ -417,19 +437,21 @@ class GymDuckiebotSimulator:
         self.pcs[robot_name].last_commands = data.commands
 
     def on_received_get_robot_observations(self, context: Context, data: GetRobotObservations):
-        robot_name = data.robot_name
-        if not robot_name in self.pcs:
-            msg = f'Cannot compute observations for non-pc {robot_name!r}'
-            raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
-                              npcs=list(self.npcs))
-        pc = self.pcs[robot_name]
-        ro = DB18RobotObservations(robot_name, pc.last_observations_time, pc.obs)
+        step = f'on_received_get_robot_observations '
+        with timeit(step, context, min_warn=0, enabled=self.config.debug_profile):
+            robot_name = data.robot_name
+            if not robot_name in self.pcs:
+                msg = f'Cannot compute observations for non-pc {robot_name!r}'
+                raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
+                                  npcs=list(self.npcs))
+            pc = self.pcs[robot_name]
+            ro = DB18RobotObservations(robot_name, pc.last_observations_time, pc.obs)
 
-        # timing information
-        t = timestamp_from_seconds(pc.last_observations_time)
-        ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
-        timing = TimingInfo(acquired={'image': ts})
-        context.write('robot_observations', ro, with_schema=True, timing=timing)
+            # timing information
+            t = timestamp_from_seconds(pc.last_observations_time)
+            ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
+            timing = TimingInfo(acquired={'image': ts})
+            context.write('robot_observations', ro, with_schema=True, timing=timing)
 
     def _get_robot_state(self, robot_name: RobotName) -> DTSimRobotState:
         env = self.env
@@ -524,7 +546,8 @@ class GymDuckiebotSimulator:
             shape = TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3
             top_down_observation = np.zeros(shape, 'uint8')
         else:
-            with timeit('render_top_down', context, min_warn=0, enabled=profile_enabled):
+            step = 'on_received_get_ui_image/render_top_down'
+            with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 top_down_observation = self.env._render_img(
                     TOPDOWN_SIZE[0],
                     TOPDOWN_SIZE[1],
@@ -565,7 +588,7 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     t1 = time.time()
 
     delta = t1 - t0
-    msg = 'timeit: %d ms for %s' % ((t1 - t0) * 1000, s)
+    msg = 'timeit: %4d ms for %s' % ((t1 - t0) * 1000, s)
     if delta > min_warn:
         context.info(msg)
 
