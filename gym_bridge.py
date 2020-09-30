@@ -9,35 +9,37 @@ from dataclasses import dataclass, field
 from typing import cast, Dict, Iterator, List, Tuple
 
 import cv2
+import geometry
 import numpy as np
 import yaml
-
-import geometry
-from zuper_commons.logs import ZLogger
-
-from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobotInfo, DTSimRobotState, DTSimState,
+from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobotInfo, DTSimRobotState,
+                          DTSimState,
                           DTSimStateDump, Duckiebot1Commands, Duckiebot1Observations, EpisodeStart,
-                          GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric, PerformanceMetrics,
+                          GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric,
+                          PerformanceMetrics,
                           protocol_simulator_duckiebot1, PWMCommands, RGB, RobotConfiguration,
-                          RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState, SpawnRobot,
+                          RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
+                          SpawnRobot,
                           Step)
 from aido_schemas.protocol_simulator import MOTION_PARKED
+from gym_duckietown.envs import DuckietownEnv
+from gym_duckietown.graphics import create_frame_buffers
+from gym_duckietown.objects import DuckiebotObj
+from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
+                                      Simulator,
+                                      WHEEL_DIST)
+from zuper_commons.logs import setup_logging, ZLogger
+from zuper_commons.types import ZException, ZValueError
+from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
+from zuper_nodes_wrapper import Context, wrap_direct
+
 from duckietown_world import (construct_map, DuckietownMap, get_lane_poses, GetLanePoseResult,
                               PlatformDynamics,
                               PlatformDynamicsFactory)
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
-from gym_duckietown.envs import DuckietownEnv
-from gym_duckietown.graphics import create_frame_buffers
-from gym_duckietown.objects import DuckiebotObj
-from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT, Simulator,
-                                      WHEEL_DIST)
-from zuper_commons.types import ZValueError
-from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
-from zuper_nodes_wrapper import Context, wrap_direct
 
 logger = ZLogger(__name__)
 
-ENABLE_DT_LOGGING = False
 
 @dataclass
 class GymDuckiebotSimulatorConfig:
@@ -59,6 +61,9 @@ class GymDuckiebotSimulatorConfig:
     topdown_resolution: int = 640
 
     debug_no_video: bool = False
+
+    debug_profile: bool = False
+    """ Profile the rendering and other gym operations"""
 
 
 class R:
@@ -145,13 +150,12 @@ class PC(R):
 
 
 class GymDuckiebotSimulator:
-
     renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '2'))
     blurring = os.environ.get('BLURRING', 'True').lower() == "true"
     config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
-            render_dt=float(1 / ( 15.0 * renders_per_dt)),
-            blur_time=0.05 if blurring else 0.01
-        )
+        render_dt=float(1 / (15.0 * renders_per_dt)),
+        blur_time=0.05 if blurring else 0.01
+    )
     current_time: float
     reward_cumulative: float
     # name of the current episode
@@ -189,6 +193,8 @@ class GymDuckiebotSimulator:
             raise Exception(msg)
 
         klass = name2class[environment_class]
+        logger.info('creating environment', environment_class=environment_class,
+                    env_parameters=env_parameters)
         self.env = klass(**env_parameters)
 
     def on_received_seed(self, context: Context, data: int):
@@ -298,14 +304,16 @@ class GymDuckiebotSimulator:
             pc.update_observations(context, self.current_time)
 
     def on_received_step(self, context: Context, data: Step):
+        profile_enabled = self.config.debug_profile
         delta_time = data.until - self.current_time
         if delta_time > 0:
-            with timeit("update_physics_and_observations", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+
+            with timeit("update_physics_and_observations", context, min_warn=0, enabled=profile_enabled):
                 self.update_physics_and_observations(until=data.until, context=context)
         else:
             context.warning(f'Already at time {data.until}')
 
-        with timeit("compute done reward", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+        with timeit("compute done reward", context, min_warn=0, enabled=profile_enabled):
             d = self.env._compute_done_reward()
         self.reward_cumulative += d.reward * delta_time
         self.current_time = data.until
@@ -324,6 +332,7 @@ class GymDuckiebotSimulator:
         # context.info(f'       until: {until}')
         # context.info(f'    last_obs: {self.last_observations_time}')
         # context.info(f'   snapshots: {snapshots}')
+        profile_enabled = self.config.debug_profile
 
         for t1 in steps:
             delta_time = t1 - self.current_time
@@ -331,7 +340,7 @@ class GymDuckiebotSimulator:
             # we "update" the action in the simulator, but really
             # we are going to move the robot ourself
             last_action = np.array([0.0, 0.0])
-            with timeit("update_physics", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+            with timeit("update_physics", context, min_warn=0, enabled=profile_enabled):
                 self.env.update_physics(last_action, delta_time=delta_time)
 
             for pc_name, pc in self.pcs.items():
@@ -341,7 +350,7 @@ class GymDuckiebotSimulator:
 
             # every render_dt, render the observations
             if self.current_time - self.last_render_time > render_dt:
-                with timeit("render", context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+                with timeit("render", context, min_warn=0, enabled=profile_enabled):
                     self.render(context)
                 self.last_render_time = self.current_time
 
@@ -372,6 +381,7 @@ class GymDuckiebotSimulator:
         # context.info(f'render() at {self.current_time}')
 
         # for each robot that needs observations
+        profile_enabled = self.config.debug_profile
 
         for pc_name, pc in self.pcs.items():
             self.set_positions_and_commands(protagonist=pc_name)
@@ -383,7 +393,7 @@ class GymDuckiebotSimulator:
             self.env.cur_angle = cur_angle
 
             # render the observations
-            with timeit('render_obs()', context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+            with timeit('render_obs()', context, min_warn=0, enabled=profile_enabled):
                 if self.config.debug_no_video:
                     obs = np.zeros((480, 640, 3), 'uint8')
                 else:
@@ -451,7 +461,7 @@ class GymDuckiebotSimulator:
                                 center=get('center'),
                                 back_left=get('back_left'),
                                 back_right=get('back_right'))
-            wheels = PWMCommands(0.0, 0.0) # XXX
+            wheels = PWMCommands(0.0, 0.0)  # XXX
             state = DTSimRobotInfo(pose=q,
                                    velocity=v,
                                    leds=leds,
@@ -508,13 +518,13 @@ class GymDuckiebotSimulator:
         context.write('sim_state', sim_state)
 
     def on_received_get_ui_image(self, context: Context):
-
+        profile_enabled = self.config.debug_profile
         TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
         if self.config.debug_no_video:
             shape = TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3
-            top_down_observation  = np.zeros(shape, 'uint8')
+            top_down_observation = np.zeros(shape, 'uint8')
         else:
-            with timeit('render_top_down', context, min_warn=0, enabled=ENABLE_DT_LOGGING):
+            with timeit('render_top_down', context, min_warn=0, enabled=profile_enabled):
                 top_down_observation = self.env._render_img(
                     TOPDOWN_SIZE[0],
                     TOPDOWN_SIZE[1],
@@ -541,7 +551,7 @@ def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: f
 def rgb2jpg(rgb: np.ndarray) -> bytes:
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     compress = cv2.imencode('.jpg', bgr)[1]
-    jpg_data = np.array(compress).tostring()
+    jpg_data = np.array(compress).tobytes()
     return jpg_data
 
 
@@ -611,6 +621,7 @@ def get_rgb_tuple(x: RGB) -> Tuple[float, float, float]:
 
 
 def main():
+    setup_logging()
     node = GymDuckiebotSimulator()
     description = ''
     protocol = protocol_simulator_duckiebot1
