@@ -184,7 +184,7 @@ class GymDuckiebotSimulator:
     def init(self):
         env_parameters = self.config.env_parameters or {}
         environment_class = self.config.env_constructor
-
+        self.terminate_on_ool = os.environ.get('TERMINATE_ON_OOL', 'False').lower() == "true"
         name2class = {
             'DuckietownEnv': DuckietownEnv,
             'Simulator': Simulator,
@@ -525,7 +525,7 @@ class GymDuckiebotSimulator:
         for robot, pc in self.pcs.items():
             q, v = pc.state.TSE2_from_state()
             lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
-            if not lprs:
+            if not lprs and self.terminate_on_ool:
                 msg = f'Robot {robot} is out of the lane.'
                 logger.error(msg, pc=pc)
                 done = True
