@@ -59,6 +59,7 @@ class GymDuckiebotSimulatorConfig:
     minimum_physics_dt: float = 1 / 30.0
     blur_time: float = 0.05
     topdown_resolution: int = 640
+    terminate_on_ool: bool = True
 
     debug_no_video: bool = False
 
@@ -150,12 +151,6 @@ class PC(R):
 
 
 class GymDuckiebotSimulator:
-    # renders_per_dt = int(os.environ.get('RENDERS_PER_DT', '2'))
-    # blurring = os.environ.get('BLURRING', 'True').lower() == "true"
-    # config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig(
-    #     render_dt=float(1 / (15.0 * renders_per_dt)),
-    #     blur_time=0.05 if blurring else 0.01
-    # )
     config: GymDuckiebotSimulatorConfig = GymDuckiebotSimulatorConfig()
     current_time: float
     reward_cumulative: float
@@ -183,8 +178,8 @@ class GymDuckiebotSimulator:
 
     def init(self):
         env_parameters = self.config.env_parameters or {}
+        print(f"render_dt: {self.config.render_dt}")
         environment_class = self.config.env_constructor
-        self.terminate_on_ool = os.environ.get('TERMINATE_ON_OOL', 'False').lower() == "true"
         name2class = {
             'DuckietownEnv': DuckietownEnv,
             'Simulator': Simulator,
@@ -525,7 +520,7 @@ class GymDuckiebotSimulator:
         for robot, pc in self.pcs.items():
             q, v = pc.state.TSE2_from_state()
             lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
-            if not lprs and self.terminate_on_ool:
+            if not lprs and self.config.terminate_on_ool:
                 msg = f'Robot {robot} is out of the lane.'
                 logger.error(msg, pc=pc)
                 done = True
