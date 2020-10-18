@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 
 import math
-import os
 import random
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import cast, Dict, Iterator, List, Tuple
+from typing import cast, Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import geometry
 import numpy as np
 import yaml
+from zuper_commons.logs import setup_logging, ZLogger
+from zuper_commons.types import ZException, ZValueError
+from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
+from zuper_nodes_wrapper import Context, wrap_direct
+
 from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobotInfo, DTSimRobotState,
                           DTSimState,
                           DTSimStateDump, Duckiebot1Commands, Duckiebot1Observations, EpisodeStart,
@@ -22,21 +26,20 @@ from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobo
                           SpawnRobot,
                           Step)
 from aido_schemas.protocol_simulator import MOTION_PARKED
+from duckietown_world import (construct_map, DuckietownMap, get_lane_poses, GetLanePoseResult,
+                              iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamics,
+                              PlatformDynamicsFactory, Tile)
+from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
+from duckietown_world.world_duckietown.tile import translation_from_O3
+from duckietown_world.world_duckietown.tile_map import ij_from_tilename
+from duckietown_world.world_duckietown.types import SE2v
+from duckietown_world.world_duckietown.utils import relative_pose
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
 from gym_duckietown.objects import DuckiebotObj
 from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
                                       Simulator,
                                       WHEEL_DIST)
-from zuper_commons.logs import setup_logging, ZLogger
-from zuper_commons.types import ZException, ZValueError
-from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
-from zuper_nodes_wrapper import Context, wrap_direct
-
-from duckietown_world import (construct_map, DuckietownMap, get_lane_poses, GetLanePoseResult,
-                              PlatformDynamics,
-                              PlatformDynamicsFactory)
-from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 
 logger = ZLogger(__name__)
 
@@ -59,13 +62,39 @@ class GymDuckiebotSimulatorConfig:
     minimum_physics_dt: float = 1 / 30.0
     blur_time: float = 0.05
     topdown_resolution: int = 640
-    terminate_on_ool: bool = True
+
+    terminate_on_ool: bool = False
+    """ Terminate on out of lane """
+
+    terminate_on_out_of_tile: bool = True
+    """ Terminate on out of tile """
+
+    terminate_on_collision: bool = True
+    collision_threshold: float = 0.15
+    """ Terminate on collision """
 
     debug_no_video: bool = False
+    """ If true, it skips the rendering and gives back a black image"""
 
     debug_profile: bool = False
     """ Profile the rendering and other gym operations"""
+
     debug_profile_summary: bool = False
+    """ Make a summary of the performance """
+
+
+def is_on_a_tile(dw: PlacedObject, q: SE2v, tol=0.000001) -> Optional[Tuple[int, int]]:
+    it: IterateByTestResult
+    for it in iterate_by_class(dw, Tile):
+        tile = it.object
+        coords = ij_from_tilename(it.fqn[-1])
+        tile_transform = it.transform_sequence
+        tile_relative_pose = relative_pose(tile_transform.asmatrix2d().m, q)
+        p = translation_from_O3(tile_relative_pose)
+        if tile.get_footprint().contains(p):
+            return coords
+    return None
+
 
 class R:
     obj: DuckiebotObj
@@ -302,7 +331,7 @@ class GymDuckiebotSimulator:
     def on_received_step(self, context: Context, data: Step):
         profile_enabled = self.config.debug_profile
         delta_time = data.until - self.current_time
-        step = f'stepping forward {int(delta_time*1000)} s of simulation time'
+        step = f'stepping forward {int(delta_time * 1000)} s of simulation time'
         t0 = time.time()
         with timeit(step, context, min_warn=0, enabled=True):
 
@@ -321,7 +350,7 @@ class GymDuckiebotSimulator:
         dt_real = time.time() - t0
 
         if self.config.debug_profile_summary:
-            ratio = delta_time  / dt_real
+            ratio = delta_time / dt_real
             msg = f"""
                 Stepping forward {delta_time:.3f} s of simulation time took {dt_real:.3f} seconds.
                 *If this was the only step* (excluding, e.g. how long it takes the agent to compute)
@@ -517,20 +546,45 @@ class GymDuckiebotSimulator:
         done = False
         done_why = None
         done_code = None
+        robot_states: Dict[str, DTSimRobotState]
+        robot_states = {k: self._get_robot_state(k) for k in list(self.pcs) + list(self.npcs)}
+
         for robot, pc in self.pcs.items():
-            q, v = pc.state.TSE2_from_state()
-            lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
-            if not lprs and self.config.terminate_on_ool:
-                msg = f'Robot {robot} is out of the lane.'
-                logger.error(msg, pc=pc)
-                done = True
-                done_why = msg
-                done_code = 'out-of-lane'
-        #
-        # d = self.env._compute_done_reward()
-        # done = d.done
-        # done_why = d.done_why
-        # done_code = d.done_code
+            state = robot_states[robot]
+            q = state.state.pose
+            # q, v = pc.state.TSE2_from_state()
+            if self.config.terminate_on_ool:
+                lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
+                if not lprs:
+                    msg = f'Robot {robot} is out of the lane.'
+                    logger.error(msg, pc=pc)
+                    done = True
+                    done_why = msg
+                    done_code = 'out-of-lane'
+            if self.config.terminate_on_out_of_tile:
+                tile_coords = is_on_a_tile(self.dm, q)
+                if tile_coords is None:
+                    msg = f'Robot {robot} is out of tile.'
+                    logger.error(msg, pc=pc)
+                    done = True
+                    done_why = msg
+                    done_code = 'out-of-tile'
+            if self.config.terminate_on_collision:
+                for other_robot, its_state in robot_states.items():
+                    if other_robot == robot:
+                        continue
+                    q2 = its_state.state.pose
+                    d = relative_pose(q2, q)
+                    dist = np.linalg.norm(translation_from_O3(d))
+                    if dist < self.config.collision_threshold:
+                        msg = f'Robot {robot} collided with {other_robot}'
+                        logger.error(msg, pc=pc)
+                        done = True
+                        done_why = msg
+                        done_code = 'collision'
+
+                """ Terminate on out of tile """
+
         sim_state = SimulationState(done, done_why, done_code)
         context.write('sim_state', sim_state)
 
@@ -565,7 +619,6 @@ def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: f
         t += dt
 
 
-# noinspection PyUnresolvedReferences
 def rgb2jpg(rgb: np.ndarray) -> bytes:
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     compress = cv2.imencode('.jpg', bgr)[1]
@@ -641,7 +694,6 @@ def get_rgb_tuple(x: RGB) -> Tuple[float, float, float]:
 def main():
     setup_logging()
     node = GymDuckiebotSimulator()
-    description = ''
     protocol = protocol_simulator_duckiebot1
     wrap_direct(node=node, protocol=protocol)
 
