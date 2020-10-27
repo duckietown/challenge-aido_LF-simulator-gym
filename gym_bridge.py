@@ -479,7 +479,7 @@ class GymDuckiebotSimulator:
                                   npcs=list(self.npcs))
             pc = self.pcs[robot_name]
             ro = DB20RobotObservations(robot_name, pc.last_observations_time, pc.obs)
-            logger.info('simulator sends', ro=ro)
+            # logger.info('simulator sends', ro=ro)
             # timing information
             t = timestamp_from_seconds(pc.last_observations_time)
             ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
