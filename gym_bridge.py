@@ -39,10 +39,10 @@ from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WI
                                       Simulator,
                                       WHEEL_DIST)
 
-logger = ZLogger(__name__)
+logger = ZLogger('gym_bridge')
 __version__ = '6.0.1'
 
-logger.info(f'version {__version__}')
+logger.info(f'gym_bridge {__version__}')
 
 
 @dataclass
