@@ -15,11 +15,17 @@ build_options =  \
 	--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL) \
 	$(shell aido-labels)
 
+
+bump: # v2
+	bumpversion patch
+	git push --tags
+	git push
+
 build: update-reqs
+	aido-check-not-dirty
+	aido-check-tagged
 	docker build --pull -t $(tag) $(build_options) .
 
-build-no-cache:
-	docker build --pull  -t $(tag) $(build_options) --no-cache .
 
 push: build
 	docker push $(tag)
