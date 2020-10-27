@@ -11,28 +11,26 @@ import cv2
 import geometry
 import numpy as np
 import yaml
+from geometry import SE2value
 from zuper_commons.logs import setup_logging, ZLogger
 from zuper_commons.types import ZException, ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
 from zuper_nodes_wrapper import Context, wrap_direct
 
-from aido_schemas import (DB18RobotObservations, DB18SetRobotCommands, DTSimRobotInfo, DTSimRobotState,
-                          DTSimState,
-                          DTSimStateDump, Duckiebot1Commands, Duckiebot1Observations, EpisodeStart,
-                          GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric,
-                          PerformanceMetrics,
-                          protocol_simulator_duckiebot1, PWMCommands, RGB, RobotConfiguration,
+from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20RobotObservations,
+                          DB20SetRobotCommands, DTSimRobotInfo, DTSimRobotState, DTSimState, DTSimStateDump,
+                          EpisodeStart, GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric,
+                          PerformanceMetrics, protocol_simulator_DB20, PWMCommands, RGB, RobotConfiguration,
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
-                          SpawnRobot,
-                          Step)
+                          SpawnRobot, Step)
 from aido_schemas.protocol_simulator import MOTION_PARKED
-from duckietown_world import (construct_map, DuckietownMap, get_lane_poses, GetLanePoseResult,
-                              iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamics,
-                              PlatformDynamicsFactory, Tile)
+from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
+                              iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
+                              Tile)
+from duckietown_world.world_duckietown.dynamics_delay import DelayedDynamics
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from duckietown_world.world_duckietown.tile import translation_from_O3
 from duckietown_world.world_duckietown.tile_map import ij_from_tilename
-from duckietown_world.world_duckietown.types import SE2v
 from duckietown_world.world_duckietown.utils import relative_pose
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
@@ -83,7 +81,7 @@ class GymDuckiebotSimulatorConfig:
     """ Make a summary of the performance """
 
 
-def is_on_a_tile(dw: PlacedObject, q: SE2v, tol=0.000001) -> Optional[Tuple[int, int]]:
+def is_on_a_tile(dw: PlacedObject, q: SE2value, tol=0.000001) -> Optional[Tuple[int, int]]:
     it: IterateByTestResult
     for it in iterate_by_class(dw, Tile):
         tile = it.object
@@ -110,14 +108,14 @@ class NPC(R):
 class PC(R):
     spawn_configuration: RobotConfiguration
     # ro: DB18RobotObservations = None
-    last_commands: Duckiebot1Commands
-    obs: Duckiebot1Observations
+    last_commands: DB20Commands
+    obs: DB20Observations
 
     last_observations: np.array
 
     last_observations_time: float = None
 
-    state: PlatformDynamics
+    state: DelayedDynamics
     blur_time: float
 
     # history of "raw" observations and their timestamps
@@ -132,7 +130,7 @@ class PC(R):
         black = RGB(.0, .0, .0)
         leds = LEDSCommands(black, black, black, black, black)
         wheels = PWMCommands(.0, .0)
-        self.last_commands = Duckiebot1Commands(LEDS=leds, wheels=wheels)
+        self.last_commands = DB20Commands(LEDS=leds, wheels=wheels)
         self.last_observations = None
 
         self.last_observations_time = -1000
@@ -144,7 +142,7 @@ class PC(R):
         v = spawn_configuration.velocity
         c0 = q, v
 
-        self.state = pdf.initialize(c0=c0, t0=0)
+        self.state = cast(DelayedDynamics, pdf.initialize(c0=c0, t0=0))
 
     def integrate(self, dt: float):
         self.state = self.state.integrate(dt, self.last_commands.wheels)
@@ -175,7 +173,13 @@ class PC(R):
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
         camera = JPGImage(jpg_data)
-        self.obs = Duckiebot1Observations(camera)
+        s: DelayedDynamics = self.state
+        sd = cast(DynamicModel, s.state)
+        resolution_rad = sd.parameters.encoder_resolution_rad
+        odometry = DB20Odometry(axis_right_rad=sd.axis_right_obs_rad,
+                                axis_left_rad=sd.axis_left_rad,
+                                resolution_rad=resolution_rad)
+        self.obs = DB20Observations(camera, odometry)
         self.last_observations_time = current_time
 
 
@@ -235,6 +239,7 @@ class GymDuckiebotSimulator:
 
         map_data = yaml.load(yaml_str, Loader=yaml.SafeLoader)
         self.dm = construct_map(map_data)
+        # noinspection PyProtectedMember
         self.env._interpret_map(map_data)
 
     def on_received_spawn_robot(self, data: SpawnRobot):
@@ -344,6 +349,7 @@ class GymDuckiebotSimulator:
 
             step = 'on_received_step/_compute_done_reward'
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                # noinspection PyProtectedMember
                 d = self.env._compute_done_reward()
             self.reward_cumulative += d.reward * delta_time
             self.current_time = data.until
@@ -448,7 +454,7 @@ class GymDuckiebotSimulator:
 
             self.set_positions_and_commands(protagonist="")
 
-    def on_received_set_robot_commands(self, data: DB18SetRobotCommands, context: Context):
+    def on_received_set_robot_commands(self, data: DB20SetRobotCommands, context: Context):
         robot_name = data.robot_name
         wheels = data.commands.wheels
         l, r = wheels.motor_left, wheels.motor_right
@@ -469,7 +475,7 @@ class GymDuckiebotSimulator:
                 raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
                                   npcs=list(self.npcs))
             pc = self.pcs[robot_name]
-            ro = DB18RobotObservations(robot_name, pc.last_observations_time, pc.obs)
+            ro = DB20RobotObservations(robot_name, pc.last_observations_time, pc.obs)
 
             # timing information
             t = timestamp_from_seconds(pc.last_observations_time)
@@ -597,6 +603,7 @@ class GymDuckiebotSimulator:
         else:
             step = 'on_received_get_ui_image/render_top_down'
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                # noinspection PyProtectedMember
                 top_down_observation = self.env._render_img(
                     TOPDOWN_SIZE[0],
                     TOPDOWN_SIZE[1],
@@ -636,7 +643,7 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     t1 = time.time()
 
     delta = t1 - t0
-    msg = 'timeit: %4d ms for %s' % ((t1 - t0) * 1000, s)
+    msg = f'timeit: {int((t1 - t0) * 1000):4d} ms for {s}'
     if delta > min_warn:
         context.info(msg)
 
@@ -651,13 +658,14 @@ def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
     env.cur_angle = cur_angle
 
     i, j = env.get_grid_coords(env.cur_pos)
+    # noinspection PyProtectedMember
     tile = env._get_tile(i, j)
 
     msg = ''
     msg += f'\ni, j: {i}, {j}'
-    msg += '\nPose: %s' % geometry.SE2.friendly(q)
-    msg += '\nPose: %s' % geometry.SE2.friendly(q2)
-    msg += '\nCur pos: %s' % cur_pos
+    msg += f'\nPose: {geometry.SE2.friendly(q)}'
+    msg += f'\nPose: {geometry.SE2.friendly(q2)}'
+    msg += f'\nCur pos: {cur_pos}'
     context.info(msg)
 
     if tile is None:
@@ -667,18 +675,19 @@ def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
     kind = tile['kind']
     is_straight = kind.startswith('straight')
 
-    context.info('Sampled tile  %s %s %s' % (tile['coords'], tile['kind'], tile['angle']))
+    context.info(f'Sampled tile  {tile["coords"]} {tile["kind"]} {tile["angle"]}')
 
     if not is_straight:
         context.info('not on a straight tile')
 
+    # noinspection PyProtectedMember
     valid = env._valid_pose(cur_pos, cur_angle)
-    context.info('valid: %s' % valid)
+    context.info(f'valid: {valid}')
 
     try:
         lp = env.get_lane_pos2(cur_pos, cur_angle)
-        context.info('Sampled lane pose %s' % str(lp))
-        context.info('dist: %s' % lp.dist)
+        context.info(f'Sampled lane pose {lp}')
+        context.info(f'dist: {lp.dist}')
     except NotInLane:
         raise
 
@@ -694,7 +703,7 @@ def get_rgb_tuple(x: RGB) -> Tuple[float, float, float]:
 def main():
     setup_logging()
     node = GymDuckiebotSimulator()
-    protocol = protocol_simulator_duckiebot1
+    protocol = protocol_simulator_DB20
     wrap_direct(node=node, protocol=protocol)
 
 
