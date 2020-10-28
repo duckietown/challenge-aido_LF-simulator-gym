@@ -7,9 +7,12 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 WORKDIR /project
 
 RUN apt-get update && apt-get install -y gcc
-COPY requirements* ./
-RUN pip install -U pip>=20.2
-RUN pip install --use-feature=2020-resolver -r requirements.resolved
+
+RUN pip3 install -U pip>=20.2
+COPY requirements.* ./
+RUN cat requirements.* > .requirements.txt
+RUN  pip3 install --use-feature=2020-resolver -r .requirements.txt
+
 RUN pipdeptree
 
 
