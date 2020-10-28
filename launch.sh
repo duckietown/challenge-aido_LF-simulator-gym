@@ -25,7 +25,7 @@ export DISPLAY=:99
 
 
 echo "$prefix Now running gym_bridge.py" 1>&2
-python3 gym_bridge.py
+nice -n 20 python3 gym_bridge.py
 ret=$?
 echo "$prefix gym_simulation_launcher terminated with return code $ret" 1>&2
 
