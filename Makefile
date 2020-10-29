@@ -28,4 +28,4 @@ build: update-reqs
 
 
 push: build
-	docker push $(tag)
+	while ! docker push $(tag)
