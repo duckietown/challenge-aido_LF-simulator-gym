@@ -8,6 +8,7 @@ _kill_procs() {
   kill -TERM $xvfb
 }
 
+
 ## Setup a trap to catch SIGTERM and relay it to child processes
 trap _kill_procs SIGTERM
 trap _kill_procs INT
