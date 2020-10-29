@@ -8,12 +8,12 @@ tag=$(AIDO_REGISTRY)/duckietown/$(repo):$(branch)
 
 update-reqs:
 	pur --index-url $(PIP_INDEX_URL) -r requirements.txt -f -m '*' -o requirements.resolved
-	aido-update-reqs requirements.resolved
+	dt-update-reqs requirements.resolved
 
 build_options =  \
 	--build-arg AIDO_REGISTRY=$(AIDO_REGISTRY) \
 	--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL) \
-	$(shell aido-labels)
+	$(shell dt-labels)
 
 
 bump: # v2
@@ -22,10 +22,10 @@ bump: # v2
 	git push
 
 build: update-reqs
-	aido-check-not-dirty
-	aido-check-tagged
+	dts build_utils check-not-dirty
+	dts build_utils check-tagged
 	docker build --pull -t $(tag) $(build_options) .
 
 
 push: build
-	bash -c " docker push $(tag)"
+	bash -c " dt-docker-push $(tag)"
