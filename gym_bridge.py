@@ -23,7 +23,7 @@ from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20Robo
                           PerformanceMetrics, protocol_simulator_DB20, PWMCommands, RGB, RobotConfiguration,
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
                           SpawnRobot, Step)
-from aido_schemas.protocol_simulator import MOTION_PARKED
+from aido_schemas.protocol_simulator import MOTION_PARKED, SpawnDuckie
 from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
                               iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
                               Tile)
@@ -34,7 +34,7 @@ from duckietown_world.world_duckietown.tile_map import ij_from_tilename
 from duckietown_world.world_duckietown.utils import relative_pose
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
-from gym_duckietown.objects import DuckiebotObj
+from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
                                       Simulator,
                                       WHEEL_DIST)
@@ -108,15 +108,23 @@ class NPC(R):
     pass
 
 
+class Duckie:
+    obj: DuckieObj
+    pose: SE2value
+
+    def __init__(self, obj: DuckieObj, pose: SE2value):
+        self.obj = obj
+        self.pose = pose
+
+
 class PC(R):
     spawn_configuration: RobotConfiguration
-    # ro: DB18RobotObservations = None
     last_commands: DB20Commands
     obs: DB20Observations
 
-    last_observations: np.array
+    last_observations: Optional[np.ndarray]
 
-    last_observations_time: float = None
+    last_observations_time: float
 
     state: DelayedDynamics
     blur_time: float
@@ -197,12 +205,13 @@ class GymDuckiebotSimulator:
     # last time we rendered the observations
     last_render_time: float
 
-    # reward_cumulative: float
 
     env: Simulator
 
     pcs: Dict[RobotName, PC]
     npcs: Dict[RobotName, NPC]
+    duckies: Dict[RobotName, Duckie]
+
     dm: DuckietownMap
 
     def __init__(self):
@@ -211,6 +220,7 @@ class GymDuckiebotSimulator:
     def clear(self):
         self.npcs = {}
         self.pcs = {}
+        self.duckies = {}
 
     def init(self):
         env_parameters = self.config.env_parameters or {}
@@ -244,6 +254,30 @@ class GymDuckiebotSimulator:
         self.dm = construct_map(map_data)
         # noinspection PyProtectedMember
         self.env._interpret_map(map_data)
+
+    def on_received_spawn_duckie(self, data: SpawnDuckie):
+        q = data.pose
+        pos, angle = self.env.weird_from_cartesian(q)
+
+        mesh = ObjMesh.get('duckie')
+        kind = 'duckie'
+        height = 0.12
+        static = True
+
+        obj_desc = {
+            'kind': kind,
+            'mesh': mesh,
+            'pos': pos,
+            'rotate': np.rad2deg(angle),
+            'height': height,
+            'y_rot': np.rad2deg(angle),
+            'static': static,
+            'optional': False,
+            'scale': height / mesh.max_coords[1]
+        }
+        obj = DuckieObj(obj_desc, domain_rand=False, safety_radius_mult=SAFETY_RAD_MULT, walk_distance=0.0)
+
+        self.duckies[data.name] = Duckie(obj, data.pose)
 
     def on_received_spawn_robot(self, data: SpawnRobot):
         q = data.configuration.pose
@@ -305,12 +339,8 @@ class GymDuckiebotSimulator:
         self.episode_name = data.episode_name
         self.top_down_observation = None
         TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
-        self.top_down_multi_fbo, self.top_down_final_fbo = create_frame_buffers(
-            TOPDOWN_SIZE[0],
-            TOPDOWN_SIZE[1],
-            4
-        )
-
+        shape =  TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 4
+        self.top_down_multi_fbo, self.top_down_final_fbo = create_frame_buffers(*shape)
         self.top_down_img_array = np.zeros(shape=(TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3), dtype=np.uint8)
 
         try:
@@ -331,6 +361,9 @@ class GymDuckiebotSimulator:
 
         for _, npc in self.npcs.items():
             self.env.objects.append(npc.obj)
+
+        for _, duckie in self.duckies.items():
+            self.env.objects.append(duckie.obj)
 
         self.render(context)
         for _, pc in self.pcs.items():
@@ -579,6 +612,16 @@ class GymDuckiebotSimulator:
                     done_why = msg
                     done_code = 'out-of-tile'
             if self.config.terminate_on_collision:
+                for duckie_name, duckie in self.duckies.items():
+                    d = relative_pose(duckie.pose, q)
+                    dist = np.linalg.norm(translation_from_O3(d))
+                    if dist < self.config.collision_threshold:
+                        msg = f'Robot {robot} collided with duckie {duckie_name}'
+                        logger.error(msg, pc=pc)
+                        done = True
+                        done_why = msg
+                        done_code = 'collision'
+
                 for other_robot, its_state in robot_states.items():
                     if other_robot == robot:
                         continue
@@ -599,17 +642,17 @@ class GymDuckiebotSimulator:
 
     def on_received_get_ui_image(self, context: Context):
         profile_enabled = self.config.debug_profile
-        TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
+        S = self.config.topdown_resolution, self.config.topdown_resolution
         if self.config.debug_no_video:
-            shape = TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3
+            shape = S[0], S[1], 3
             top_down_observation = np.zeros(shape, 'uint8')
         else:
             step = 'on_received_get_ui_image/render_top_down'
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 # noinspection PyProtectedMember
                 top_down_observation = self.env._render_img(
-                    TOPDOWN_SIZE[0],
-                    TOPDOWN_SIZE[1],
+                    S[0],
+                    S[1],
                     self.top_down_multi_fbo,
                     self.top_down_final_fbo,
                     self.top_down_img_array,
