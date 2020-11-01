@@ -261,7 +261,7 @@ class GymDuckiebotSimulator:
 
         mesh = ObjMesh.get('duckie')
         kind = 'duckie'
-        height = 0.12
+        height = 0.08
         static = True
 
         obj_desc = {
