@@ -16,7 +16,8 @@ RUN  pip3 install --use-feature=2020-resolver -r .requirements.txt
 RUN pip list
 RUN pipdeptree
 
-RUN python3 -c "from gym_bridge import *"
+
+RUN PYTHON_PATH=. python3 -c "import gym_bridge"
 
 COPY . .
 
