@@ -6,8 +6,7 @@ zuper-typing-z6
 zuper-ipce-z6
 zuper-nodes-z6
 duckietown-gym-daffy
-pipdeptree
-
+aido-agents-daffy
 
 
 

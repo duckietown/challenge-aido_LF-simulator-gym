@@ -28,7 +28,7 @@ from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20Robo
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
                           SpawnDuckie, SpawnRobot,
                           Step)
-from aido_schemas.protocol_simulator import Termination
+from aido_schemas import Termination
 from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
                               iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
                               Tile)
