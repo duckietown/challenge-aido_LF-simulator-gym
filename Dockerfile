@@ -8,7 +8,7 @@ WORKDIR /project
 
 RUN apt-get update && apt-get install -y gcc
 
-RUN pip install -U pip>=20.2
+RUN pip install -U "pip>=20.2"
 COPY requirements.* ./
 RUN cat requirements.* > .requirements.txt
 RUN  pip3 install --use-feature=2020-resolver -r .requirements.txt
@@ -17,9 +17,11 @@ RUN pip list
 RUN pipdeptree
 
 
-RUN PYTHON_PATH=. python3 -c "import gym_bridge"
+
 
 COPY . .
 
+# needs X
+#RUN pwd && ls && PYTHON_PATH=. python3 -c "import gym_bridge"
 
 ENTRYPOINT ["/bin/bash", "/project/launch.sh"]
