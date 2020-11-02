@@ -17,14 +17,18 @@ from zuper_commons.types import ZException, ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
 from zuper_nodes_wrapper import Context, wrap_direct
 
+from aido_agents.utils_leds import get_blinking_LEDs_emergency
 from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20RobotObservations,
-                          DB20SetRobotCommands, DTSimRobotInfo, DTSimRobotState, DTSimState, DTSimStateDump,
-                          EpisodeStart, GetRobotObservations, GetRobotState, JPGImage, LEDSCommands, Metric,
-                          PerformanceMetrics, protocol_simulator_DB20, PWMCommands, RGB, RobotConfiguration,
+                          DB20SetRobotCommands, DTSimDuckieInfo, DTSimDuckieState, DTSimRobotInfo,
+                          DTSimRobotState, DTSimState,
+                          DTSimStateDump, EpisodeStart, GetDuckieState, GetRobotObservations, GetRobotState,
+                          JPGImage, LEDSCommands,
+                          Metric, PerformanceMetrics, protocol_simulator_DB20, PWMCommands, RGB,
+                          RobotConfiguration,
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
-                          SpawnRobot, Step)
-from aido_schemas.protocol_simulator import GetDuckieState, MOTION_PARKED, SpawnDuckie
-from aido_schemas.schemas import DTSimDuckieInfo, DTSimDuckieState
+                          SpawnDuckie, SpawnRobot,
+                          Step)
+from aido_schemas.protocol_simulator import Termination
 from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
                               iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
                               Tile)
@@ -100,9 +104,11 @@ def is_on_a_tile(dw: PlacedObject, q: SE2value, tol=0.000001) -> Optional[Tuple[
 
 class R:
     obj: DuckiebotObj
+    termination: Optional[Termination]
 
     def __init__(self, obj: DuckiebotObj):
         self.obj = obj
+        self.termination = None
 
 
 class NPC(R):
@@ -133,12 +139,15 @@ class PC(R):
     # history of "raw" observations and their timestamps
     render_observations: List[np.array] = field(default_factory=list)
     render_timestamps: List[float] = field(default_factory=list)
+    controlled_by_player: bool
 
     def __init__(self, obj: DuckiebotObj, spawn_configuration,
                  pdf: PlatformDynamicsFactory,
+                 controlled_by_player: bool,
                  blur_time: float):
         R.__init__(self, obj=obj)
         self.blur_time = blur_time
+        self.controlled_by_player = controlled_by_player
         black = RGB(.0, .0, .0)
         leds = LEDSCommands(black, black, black, black, black)
         wheels = PWMCommands(.0, .0)
@@ -291,7 +300,7 @@ class GymDuckiebotSimulator:
         else:
             kind = 'duckiebot'
 
-            static = data.motion == MOTION_PARKED
+            static = True  # data.motion == MOTION_PARKED
 
         obj_desc = {
             'kind': kind,
@@ -311,7 +320,8 @@ class GymDuckiebotSimulator:
         if data.playable:
             pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
             pc = PC(obj=obj, spawn_configuration=data.configuration, pdf=pdf,
-                    blur_time=self.config.blur_time)
+                    blur_time=self.config.blur_time,
+                    controlled_by_player=data.owned_by_player)
 
             self.pcs[data.robot_name] = pc
         else:
@@ -500,10 +510,15 @@ class GymDuckiebotSimulator:
                   f' Received left = {l!r}, right = {r!r}.'
             context.error(msg)
             raise Exception(msg)
+        if self.pcs[robot_name].termination is not None:
+            context.info(f'Robot {robot_name} is terminated so inputs are ignored.')
+            data.commands.wheels.motor_left = 0.0
+            data.commands.wheels.motor_right = 0.0
+            data.commands.LEDs = get_blinking_LEDs_emergency(self.current_time)
         self.pcs[robot_name].last_commands = data.commands
 
     def on_received_get_robot_observations(self, context: Context, data: GetRobotObservations):
-        step = f'on_received_get_robot_observations '
+        step = f'on_received_get_robot_observations'
         with timeit(step, context, min_warn=0, enabled=self.config.debug_profile):
             robot_name = data.robot_name
             if not robot_name in self.pcs:
@@ -607,42 +622,49 @@ class GymDuckiebotSimulator:
         context.write('state_dump', res)
 
     def on_received_get_sim_state(self, context: Context):
-        done = False
-        done_why = None
-        done_code = None
-        robot_states: Dict[str, DTSimRobotState]
-        robot_states = {k: self._get_robot_state(k) for k in list(self.pcs) + list(self.npcs)}
+        CODE_OUT_OF_LANE = 'out-of-lane'
+        CODE_OUT_OF_TILE = 'out-of-tile'
+        CODE_COLLISION = 'collision'
 
-        for robot, pc in self.pcs.items():
-            state = robot_states[robot]
+        all_robots = {}
+        all_robots.update(self.pcs)
+        all_robots.update(self.npcs)
+        robot_states: Dict[str, DTSimRobotState]
+        robot_states = {k: self._get_robot_state(k) for k in all_robots}
+
+        robot: R
+        for robot_name, robot in all_robots.items():
+            if robot.termination:
+                continue
+
+            state = robot_states[robot_name]
             q = state.state.pose
-            # q, v = pc.state.TSE2_from_state()
+
             if self.config.terminate_on_ool:
                 lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
                 if not lprs:
-                    msg = f'Robot {robot} is out of the lane.'
-                    logger.error(msg, pc=pc)
-                    done = True
-                    done_why = msg
-                    done_code = 'out-of-lane'
+                    msg = f'Robot {robot_name!r} is out of the lane.'
+                    termination = Termination(when=self.current_time,
+                                              desc=msg, code=CODE_OUT_OF_LANE)
+                    robot.termination = termination
+                    logger.error(robot_name=robot_name, termination=termination)
+
             if self.config.terminate_on_out_of_tile:
                 tile_coords = is_on_a_tile(self.dm, q)
                 if tile_coords is None:
-                    msg = f'Robot {robot} is out of tile.'
-                    logger.error(msg, pc=pc)
-                    done = True
-                    done_why = msg
-                    done_code = 'out-of-tile'
+                    msg = f'Robot {robot_name!r} is out of tile.'
+                    termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE)
+                    robot.termination = termination
+                    logger.error(robot_name=robot_name, termination=termination)
             if self.config.terminate_on_collision:
                 for duckie_name, duckie in self.duckies.items():
                     d = relative_pose(duckie.pose, q)
                     dist = np.linalg.norm(translation_from_O3(d))
                     if dist < self.config.collision_threshold:
-                        msg = f'Robot {robot} collided with duckie {duckie_name}'
-                        logger.error(msg, pc=pc)
-                        done = True
-                        done_why = msg
-                        done_code = 'collision'
+                        msg = f'Robot {robot_name!r} collided with duckie {duckie_name!r}.'
+                        termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
+                        robot.termination = termination
+                        logger.error(robot_name=robot_name, termination=termination)
 
                 for other_robot, its_state in robot_states.items():
                     if other_robot == robot:
@@ -651,15 +673,18 @@ class GymDuckiebotSimulator:
                     d = relative_pose(q2, q)
                     dist = np.linalg.norm(translation_from_O3(d))
                     if dist < self.config.collision_threshold:
-                        msg = f'Robot {robot} collided with {other_robot}'
-                        logger.error(msg, pc=pc)
-                        done = True
-                        done_why = msg
-                        done_code = 'collision'
+                        msg = f'Robot {robot!r} collided with {other_robot!r}'
+                        termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
+                        robot.termination = termination
+                        logger.error(robot_name=robot_name, termination=termination)
 
-                """ Terminate on out of tile """
-
-        sim_state = SimulationState(done, done_why, done_code)
+        robots_owned_by_player = [k for k, v in self.pcs.items() if v.controlled_by_player]
+        terminated_robots = [k for k, v in (list(self.pcs.items()) + list(self.npcs.items())) if
+                             v.termination is not None]
+        all_player_robots_terminated = len(set(robots_owned_by_player) - set(terminated_robots)) == 0
+        done = all_player_robots_terminated
+        terminations = {k: v.termination for k, v in all_robots.items()}
+        sim_state = SimulationState(done, terminations=terminations)
         context.write('sim_state', sim_state)
 
     def on_received_get_ui_image(self, context: Context):
