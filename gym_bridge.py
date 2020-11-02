@@ -632,9 +632,9 @@ class GymDuckiebotSimulator:
         robot_states: Dict[str, DTSimRobotState]
         robot_states = {k: self._get_robot_state(k) for k in all_robots}
 
-        robot: R
-        for robot_name, robot in all_robots.items():
-            if robot.termination:
+        the_robot: R
+        for robot_name, the_robot in all_robots.items():
+            if the_robot.termination:
                 continue
 
             state = robot_states[robot_name]
@@ -646,7 +646,7 @@ class GymDuckiebotSimulator:
                     msg = f'Robot {robot_name!r} is out of the lane.'
                     termination = Termination(when=self.current_time,
                                               desc=msg, code=CODE_OUT_OF_LANE)
-                    robot.termination = termination
+                    the_robot.termination = termination
                     logger.error(robot_name=robot_name, termination=termination)
 
             if self.config.terminate_on_out_of_tile:
@@ -654,7 +654,7 @@ class GymDuckiebotSimulator:
                 if tile_coords is None:
                     msg = f'Robot {robot_name!r} is out of tile.'
                     termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE)
-                    robot.termination = termination
+                    the_robot.termination = termination
                     logger.error(robot_name=robot_name, termination=termination)
             if self.config.terminate_on_collision:
                 for duckie_name, duckie in self.duckies.items():
@@ -663,19 +663,19 @@ class GymDuckiebotSimulator:
                     if dist < self.config.collision_threshold:
                         msg = f'Robot {robot_name!r} collided with duckie {duckie_name!r}.'
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
-                        robot.termination = termination
+                        the_robot.termination = termination
                         logger.error(robot_name=robot_name, termination=termination)
 
                 for other_robot, its_state in robot_states.items():
-                    if other_robot == robot:
+                    if other_robot == robot_name:
                         continue
                     q2 = its_state.state.pose
                     d = relative_pose(q2, q)
                     dist = np.linalg.norm(translation_from_O3(d))
                     if dist < self.config.collision_threshold:
-                        msg = f'Robot {robot!r} collided with {other_robot!r}'
+                        msg = f'Robot {robot_name!r} collided with {other_robot!r}'
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
-                        robot.termination = termination
+                        the_robot.termination = termination
                         logger.error(robot_name=robot_name, termination=termination)
 
         robots_owned_by_player = [k for k, v in self.pcs.items() if v.controlled_by_player]
