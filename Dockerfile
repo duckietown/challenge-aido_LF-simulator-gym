@@ -1,5 +1,5 @@
 ARG AIDO_REGISTRY
-FROM ${AIDO_REGISTRY}/duckietown/gym-duckietown-server-python3:daffy
+FROM ${AIDO_REGISTRY}/duckietown/gym-duckietown:daffy-amd64
 
 ARG PIP_INDEX_URL
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
