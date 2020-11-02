@@ -23,7 +23,8 @@ from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20Robo
                           PerformanceMetrics, protocol_simulator_DB20, PWMCommands, RGB, RobotConfiguration,
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
                           SpawnRobot, Step)
-from aido_schemas.protocol_simulator import MOTION_PARKED, SpawnDuckie
+from aido_schemas.protocol_simulator import GetDuckieState, MOTION_PARKED, SpawnDuckie
+from aido_schemas.schemas import DTSimDuckieInfo, DTSimDuckieState
 from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
                               iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
                               Tile)
@@ -205,7 +206,6 @@ class GymDuckiebotSimulator:
     # last time we rendered the observations
     last_render_time: float
 
-
     env: Simulator
 
     pcs: Dict[RobotName, PC]
@@ -339,7 +339,7 @@ class GymDuckiebotSimulator:
         self.episode_name = data.episode_name
         self.top_down_observation = None
         TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
-        shape =  TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 4
+        shape = TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 4
         self.top_down_multi_fbo, self.top_down_final_fbo = create_frame_buffers(*shape)
         self.top_down_img_array = np.zeros(shape=(TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3), dtype=np.uint8)
 
@@ -519,6 +519,16 @@ class GymDuckiebotSimulator:
             timing = TimingInfo(acquired={'image': ts})
             context.write('robot_observations', ro, with_schema=True, timing=timing)
 
+    def _get_duckie_state(self, duckie_name: str) -> DTSimDuckieState:
+        d = self.duckies[duckie_name]
+        state = DTSimDuckieInfo(pose=d.pose,
+                                velocity=np.zeros((3, 3))
+                                )
+
+        return DTSimDuckieState(duckie_name=duckie_name,
+                                t_effective=self.current_time,
+                                state=state)
+
     def _get_robot_state(self, robot_name: RobotName) -> DTSimRobotState:
         env = self.env
         if robot_name in self.pcs:
@@ -566,8 +576,16 @@ class GymDuckiebotSimulator:
 
     def on_received_get_robot_state(self, context: Context, data: GetRobotState):
         robot_name = data.robot_name
-
         rs = self._get_robot_state(robot_name)
+        # timing information
+        t = timestamp_from_seconds(self.current_time)
+        ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
+        timing = TimingInfo(acquired={'state': ts})
+        context.write('robot_state', rs, timing=timing)  # , with_schema=True)
+
+    def on_received_get_duckie_state(self, context: Context, data: GetDuckieState):
+        duckie_name = data.duckie_name
+        rs = self._get_duckie_state(duckie_name)
         # timing information
         t = timestamp_from_seconds(self.current_time)
         ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
@@ -580,7 +598,11 @@ class GymDuckiebotSimulator:
             duckiebots[robot_name] = self._get_robot_state(robot_name).state
         for robot_name in self.npcs:
             duckiebots[robot_name] = self._get_robot_state(robot_name).state
-        simstate = DTSimState(t_effective=self.current_time, duckiebots=duckiebots)
+        duckies = {}
+        for duckie_name in self.duckies:
+            duckies[duckie_name] = self._get_duckie_state(duckie_name).state
+        simstate = DTSimState(t_effective=self.current_time, duckiebots=duckiebots,
+                              duckies=duckies)
         res = DTSimStateDump(simstate)
         context.write('state_dump', res)
 
