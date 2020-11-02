@@ -605,7 +605,7 @@ class GymDuckiebotSimulator:
         t = timestamp_from_seconds(self.current_time)
         ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
         timing = TimingInfo(acquired={'state': ts})
-        context.write('robot_state', rs, timing=timing)  # , with_schema=True)
+        context.write('duckie_state', rs, timing=timing)  # , with_schema=True)
 
     def on_received_dump_state(self, context: Context):
         duckiebots = {}
