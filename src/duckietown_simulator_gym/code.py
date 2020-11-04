@@ -1,4 +1,3 @@
-
 import math
 import random
 import time
@@ -10,11 +9,10 @@ import cv2
 import geometry
 import numpy as np
 import yaml
-from geometry import SE2value
-from zuper_commons.logs import setup_logging, ZLogger
+from geometry import se2_from_linear_angular, SE2value
 from zuper_commons.types import ZException, ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
-from zuper_nodes_wrapper import Context, wrap_direct
+from zuper_nodes_wrapper import Context
 
 from aido_agents.utils_leds import get_blinking_LEDs_emergency
 from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20RobotObservations,
@@ -22,7 +20,7 @@ from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20Robo
                           DTSimRobotState, DTSimState,
                           DTSimStateDump, EpisodeStart, GetDuckieState, GetRobotObservations, GetRobotState,
                           JPGImage, LEDSCommands,
-                          Metric, PerformanceMetrics, protocol_simulator_DB20, PWMCommands, RGB,
+                          Metric, PerformanceMetrics, PWMCommands, RGB,
                           RobotConfiguration,
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
                           SpawnDuckie, SpawnRobot,
@@ -41,11 +39,8 @@ from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
                                       Simulator,
                                       WHEEL_DIST)
+from . import logger
 
-logger = ZLogger('gym_bridge')
-
-
-logger.info(f'gym_bridge {__version__}')
 CODE_OUT_OF_LANE = 'out-of-lane'
 CODE_OUT_OF_TILE = 'out-of-tile'
 CODE_COLLISION = 'collision'
@@ -648,6 +643,7 @@ class GymDuckiebotSimulator:
                     termination = Termination(when=self.current_time,
                                               desc=msg, code=CODE_OUT_OF_LANE)
                     the_robot.termination = termination
+                    halt_robot(the_robot, q)
                     logger.error(robot_name=robot_name, termination=termination)
 
             if self.config.terminate_on_out_of_tile:
@@ -656,6 +652,7 @@ class GymDuckiebotSimulator:
                     msg = f'Robot {robot_name!r} is out of tile.'
                     termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE)
                     the_robot.termination = termination
+                    halt_robot(the_robot, q)
                     logger.error(robot_name=robot_name, termination=termination)
             if self.config.terminate_on_collision:
                 for duckie_name, duckie in self.duckies.items():
@@ -665,6 +662,7 @@ class GymDuckiebotSimulator:
                         msg = f'Robot {robot_name!r} collided with duckie {duckie_name!r}.'
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
+                        halt_robot(the_robot, q)
                         logger.error(robot_name=robot_name, termination=termination)
 
                 for other_robot, its_state in robot_states.items():
@@ -677,6 +675,7 @@ class GymDuckiebotSimulator:
                         msg = f'Robot {robot_name!r} collided with {other_robot!r}'
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
+                        halt_robot(the_robot, q)
                         logger.error(robot_name=robot_name, termination=termination)
 
         robots_owned_by_player = [k for k, v in self.pcs.items() if v.controlled_by_player]
@@ -740,6 +739,14 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     msg = f'timeit: {int((t1 - t0) * 1000):4d} ms for {s}'
     if delta > min_warn:
         context.info(msg)
+
+
+def halt_robot(r: R, pose: SE2value):
+    if isinstance(r, PC):
+        pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
+        v0 = se2_from_linear_angular([0.0, 0.0], 0.0)
+        c0 = pose, v0
+        r.state = pdf.initialize(c0=c0, t0=0)
 
 
 def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
