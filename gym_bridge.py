@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#
+
 import math
 import random
 import time
@@ -27,8 +27,7 @@ from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20Robo
                           RobotConfiguration,
                           RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
                           SpawnDuckie, SpawnRobot,
-                          Step)
-from aido_schemas import Termination
+                          Step, Termination)
 from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
                               iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
                               Tile)
@@ -48,6 +47,9 @@ logger = ZLogger('gym_bridge')
 __version__ = '6.0.22'
 
 logger.info(f'gym_bridge {__version__}')
+CODE_OUT_OF_LANE = 'out-of-lane'
+CODE_OUT_OF_TILE = 'out-of-tile'
+CODE_COLLISION = 'collision'
 
 
 @dataclass
@@ -89,7 +91,7 @@ class GymDuckiebotSimulatorConfig:
     """ Make a summary of the performance """
 
 
-def is_on_a_tile(dw: PlacedObject, q: SE2value, tol=0.000001) -> Optional[Tuple[int, int]]:
+def is_on_a_tile(dw: PlacedObject, q: SE2value) -> Optional[Tuple[int, int]]:
     it: IterateByTestResult
     for it in iterate_by_class(dw, Tile):
         tile = it.object
@@ -141,6 +143,8 @@ class PC(R):
     render_timestamps: List[float] = field(default_factory=list)
     controlled_by_player: bool
 
+    pdf: PlatformDynamicsFactory
+
     def __init__(self, obj: DuckiebotObj, spawn_configuration,
                  pdf: PlatformDynamicsFactory,
                  controlled_by_player: bool,
@@ -148,7 +152,7 @@ class PC(R):
         R.__init__(self, obj=obj)
         self.blur_time = blur_time
         self.controlled_by_player = controlled_by_player
-        black = RGB(.0, .0, .0)
+        black = RGB(.0, 1.0, .0)
         leds = LEDSCommands(black, black, black, black, black)
         wheels = PWMCommands(.0, .0)
         self.last_commands = DB20Commands(LEDS=leds, wheels=wheels)
@@ -162,7 +166,7 @@ class PC(R):
         q = spawn_configuration.pose
         v = spawn_configuration.velocity
         c0 = q, v
-
+        self.pdf = pdf
         self.state = cast(DelayedDynamics, pdf.initialize(c0=c0, t0=0))
 
     def integrate(self, dt: float):
@@ -231,9 +235,9 @@ class GymDuckiebotSimulator:
         self.pcs = {}
         self.duckies = {}
 
-    def init(self):
+    def init(self, context: Context):
         env_parameters = self.config.env_parameters or {}
-        print(f"render_dt: {self.config.render_dt}")
+        logger.info(config=self.config)
         environment_class = self.config.env_constructor
         name2class = {
             'DuckietownEnv': DuckietownEnv,
@@ -452,13 +456,14 @@ class GymDuckiebotSimulator:
                 for pc_name, pc in self.pcs.items():
                     pc.update_observations(context, self.current_time)
 
-    def set_positions_and_commands(self, protagonist: str):
+    def set_positions_and_commands(self, protagonist: RobotName):
         for pc_name, pc in self.pcs.items():
             q, v = pc.state.TSE2_from_state()
             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
 
             if pc_name == protagonist:
-                cur_pos[1] -= 1  # Z
+                cur_pos[0] -= 100  # Z
+                cur_pos[1] -= 100  # Z
 
             pc.obj.pos = cur_pos
             pc.obj.angle = cur_angle
@@ -622,9 +627,6 @@ class GymDuckiebotSimulator:
         context.write('state_dump', res)
 
     def on_received_get_sim_state(self, context: Context):
-        CODE_OUT_OF_LANE = 'out-of-lane'
-        CODE_OUT_OF_TILE = 'out-of-tile'
-        CODE_COLLISION = 'collision'
 
         all_robots = {}
         all_robots.update(self.pcs)
