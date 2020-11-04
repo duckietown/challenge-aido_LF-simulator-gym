@@ -44,7 +44,7 @@ from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WI
                                       WHEEL_DIST)
 
 logger = ZLogger('gym_bridge')
-__version__ = '6.0.22'
+__version__ = '6.0.23'
 
 logger.info(f'gym_bridge {__version__}')
 CODE_OUT_OF_LANE = 'out-of-lane'
