@@ -2,3 +2,4 @@
 !*.py
 !requirements*
 !launch.sh
+!src

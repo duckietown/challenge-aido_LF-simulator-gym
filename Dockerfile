@@ -21,6 +21,8 @@ RUN pipdeptree
 
 COPY . .
 
+RUN pip install --no-deps .
+
 # needs X
 #RUN pwd && ls && PYTHON_PATH=. python3 -c "import gym_bridge"
 
