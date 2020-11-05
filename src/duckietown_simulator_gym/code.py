@@ -188,7 +188,11 @@ class PC(R):
             obs = obs0 / len(to_average)
         except IndexError:
             obs = self.render_observations[0]
+
         obs = obs.astype('uint8')
+        if self.termination is not None:
+            obs = rgb2gray(obs)
+
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
         camera = JPGImage(jpg_data)
@@ -200,6 +204,27 @@ class PC(R):
                                 resolution_rad=resolution_rad)
         self.obs = DB20Observations(camera, odometry)
         self.last_observations_time = current_time
+
+
+def rgb2gray(rgb):
+    """ Converts a HxWx3 RGB image into a HxW grayscale image
+        by computing the luminance.
+
+        :param rgb: RGB image
+        :type rgb: array[HxWx3](uint8),H>0,W>0
+
+        :return: A RGB image in shades of gray.
+        :rtype: array[HxW](uint8)
+    """
+
+    r = rgb[:, :, 0].squeeze()
+    g = rgb[:, :, 1].squeeze()
+    b = rgb[:, :, 2].squeeze()
+    # note we keep a uint8
+    gray = r * 299.0 / 1000 + g * 587.0 / 1000 + b * 114.0 / 1000
+    gray = gray.astype("uint8")
+
+    return gray
 
 
 class GymDuckiebotSimulator:
@@ -464,15 +489,17 @@ class GymDuckiebotSimulator:
             pc.obj.y_rot = np.rad2deg(cur_angle)
 
             if pc.last_commands is not None:
-                pc.obj.leds_color['front_right'] = get_rgb_tuple(pc.last_commands.LEDS.front_right)
-                pc.obj.leds_color['front_left'] = get_rgb_tuple(pc.last_commands.LEDS.front_left)
-                pc.obj.leds_color['back_right'] = get_rgb_tuple(pc.last_commands.LEDS.back_right)
-                pc.obj.leds_color['back_left'] = get_rgb_tuple(pc.last_commands.LEDS.back_left)
-                pc.obj.leds_color['center'] = get_rgb_tuple(pc.last_commands.LEDS.center)
+                set_gym_leds(pc.obj, pc.last_commands.LEDS)
+            if pc.termination:
+                set_gym_leds(pc.obj, pc.last_commands.LEDS)
+        for npc_name, npc in self.npcs.items():
+            if npc.termination:
+                set_gym_leds(npc.obj, get_blinking_LEDs_emergency(self.current_time))
 
     def render(self, context: Context):
         # context.info(f'render() at {self.current_time}')
 
+        # self.render_set_LEDs()
         # for each robot that needs observations
         profile_enabled = self.config.debug_profile
 
@@ -709,6 +736,14 @@ class GymDuckiebotSimulator:
         jpg_data = rgb2jpg(top_down_observation)
         jpg = JPGImage(jpg_data)
         context.write('ui_image', jpg)
+
+
+def set_gym_leds(obj: DuckiebotObj, LEDS: LEDSCommands):
+    obj.leds_color['front_right'] = get_rgb_tuple(LEDS.front_right)
+    obj.leds_color['front_left'] = get_rgb_tuple(LEDS.front_left)
+    obj.leds_color['back_right'] = get_rgb_tuple(LEDS.back_right)
+    obj.leds_color['back_left'] = get_rgb_tuple(LEDS.back_left)
+    obj.leds_color['center'] = get_rgb_tuple(LEDS.center)
 
 
 def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: float) -> Iterator[float]:
