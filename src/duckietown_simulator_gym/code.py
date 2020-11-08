@@ -224,7 +224,7 @@ def rgb2grayed(rgb):
     res[:, :, 1] = gray
     res[:, :, 2] = gray
 
-    return gray
+    return res
 
 
 class GymDuckiebotSimulator:
