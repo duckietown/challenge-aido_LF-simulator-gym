@@ -192,6 +192,8 @@ class PC(R):
         obs = obs.astype('uint8')
         if self.termination is not None:
             obs = rgb2gray(obs)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(obs, 'Wasted', (200, 200), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
@@ -488,10 +490,13 @@ class GymDuckiebotSimulator:
             pc.obj.angle = cur_angle
             pc.obj.y_rot = np.rad2deg(cur_angle)
 
-            if pc.last_commands is not None:
-                set_gym_leds(pc.obj, pc.last_commands.LEDS)
             if pc.termination:
-                set_gym_leds(pc.obj, pc.last_commands.LEDS)
+                # dt =
+                set_gym_leds(pc.obj, get_blinking_LEDs_emergency(self.current_time))
+            else:
+                if pc.last_commands is not None:
+                    set_gym_leds(pc.obj, pc.last_commands.LEDS)
+
         for npc_name, npc in self.npcs.items():
             if npc.termination:
                 set_gym_leds(npc.obj, get_blinking_LEDs_emergency(self.current_time))
@@ -715,6 +720,7 @@ class GymDuckiebotSimulator:
         context.write('sim_state', sim_state)
 
     def on_received_get_ui_image(self, context: Context):
+        self.set_positions_and_commands(protagonist="")
         profile_enabled = self.config.debug_profile
         S = self.config.topdown_resolution, self.config.topdown_resolution
         if self.config.debug_no_video:
