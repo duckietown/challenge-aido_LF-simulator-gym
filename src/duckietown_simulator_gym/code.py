@@ -194,7 +194,7 @@ class PC(R):
             obs = rgb2grayed(obs)
             font = cv2.FONT_HERSHEY_SIMPLEX
             font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
-            cv2.putText(obs, 'Wasted', (165, 200), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(obs, 'Wasted', (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
