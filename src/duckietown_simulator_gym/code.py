@@ -191,9 +191,10 @@ class PC(R):
 
         obs = obs.astype('uint8')
         if self.termination is not None:
-            obs = rgb2gray(obs)
+            obs = rgb2grayed(obs)
             font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(obs, 'Wasted', (200, 200), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
+            font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
+            cv2.putText(obs, 'Wasted', (165, 200), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
@@ -208,16 +209,8 @@ class PC(R):
         self.last_observations_time = current_time
 
 
-def rgb2gray(rgb):
-    """ Converts a HxWx3 RGB image into a HxW grayscale image
-        by computing the luminance.
+def rgb2grayed(rgb):
 
-        :param rgb: RGB image
-        :type rgb: array[HxWx3](uint8),H>0,W>0
-
-        :return: A RGB image in shades of gray.
-        :rtype: array[HxW](uint8)
-    """
 
     r = rgb[:, :, 0].squeeze()
     g = rgb[:, :, 1].squeeze()
@@ -225,6 +218,11 @@ def rgb2gray(rgb):
     # note we keep a uint8
     gray = r * 299.0 / 1000 + g * 587.0 / 1000 + b * 114.0 / 1000
     gray = gray.astype("uint8")
+
+    res = np.zeros(shape=rgb.shape, dtype='uint8')
+    res[:, :, 0] = gray
+    res[:, :, 1] = gray
+    res[:, :, 2] = gray
 
     return gray
 
