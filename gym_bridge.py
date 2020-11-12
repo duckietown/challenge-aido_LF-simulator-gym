@@ -2,9 +2,8 @@
 
 
 from zuper_commons.logs import setup_logging
-from zuper_nodes_wrapper import wrap_direct
 
-from aido_schemas import (protocol_simulator_DB20)
+from aido_schemas import protocol_simulator_DB20, wrap_direct
 from duckietown_simulator_gym.code import GymDuckiebotSimulator
 
 

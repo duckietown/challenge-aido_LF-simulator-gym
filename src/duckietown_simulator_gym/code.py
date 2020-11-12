@@ -210,8 +210,6 @@ class PC(R):
 
 
 def rgb2grayed(rgb):
-
-
     r = rgb[:, :, 0].squeeze()
     g = rgb[:, :, 1].squeeze()
     b = rgb[:, :, 2].squeeze()
@@ -263,13 +261,19 @@ class GymDuckiebotSimulator:
             'Simulator': Simulator,
         }
         if not environment_class in name2class:
-            msg = 'Could not find environment class {} in {}'.format(environment_class, list(name2class))
-            raise Exception(msg)
+            msg = 'Could not find environment class.'
+            raise ZException(msg,
+                             environment_class=environment_class,
+                             available=list(name2class))
 
         klass = name2class[environment_class]
         logger.info('creating environment', environment_class=environment_class,
                     env_parameters=env_parameters)
-        self.env = klass(**env_parameters)
+        env = klass(**env_parameters)
+        self.set_env(env)
+
+    def set_env(self, env):
+        self.env = env
 
     def on_received_seed(self, context: Context, data: int):
         context.info(f'Using seed = {data!r}')
