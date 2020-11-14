@@ -480,6 +480,7 @@ class GymDuckiebotSimulator:
                     pc.update_observations(context, self.current_time)
 
     def set_positions_and_commands(self, protagonist: RobotName):
+        self.env.cur_pos = [-100.0, -100.0, -100.0]
         for pc_name, pc in self.pcs.items():
             q, v = pc.state.TSE2_from_state()
             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
