@@ -1,5 +1,5 @@
 **
 !*.py
 !requirements*
-!launch.sh
+!launch*
 !src
