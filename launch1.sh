@@ -25,8 +25,8 @@ echo "$prefix Started xvfb with PID $xvfb" 1>&2
 export DISPLAY=:99
 
 
-echo "$prefix Now running : $1" 1>&2
-nice -n 20 $1
+echo "$prefix Now running : $@" 1>&2
+nice -n 20 $@
 ret=$?
 echo "$prefix gym_simulation_launcher terminated with return code $ret" 1>&2
 
