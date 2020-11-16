@@ -23,6 +23,8 @@ COPY . .
 
 RUN pip install --no-deps .
 
+RUN python3 -c "from duckietown_simulator_gym import *"
+
 # needs X
 #RUN pwd && ls && PYTHON_PATH=. python3 -c "import gym_bridge"
 
