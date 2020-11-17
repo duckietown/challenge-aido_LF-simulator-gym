@@ -8,7 +8,7 @@ WORKDIR /project
 
 RUN apt-get update && apt-get install -y gcc
 
-RUN apt-get install xauth
+RUN apt-get install -y xauth
 
 RUN pip install -U "pip>=20.2"
 COPY requirements.* ./
