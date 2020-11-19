@@ -1,8 +1,8 @@
-__version__ = '6.0.30'
+__version__ = '6.0.42'
 
 from zuper_commons.logs import ZLogger
 
 logger = ZLogger('gym_bridge')
 
 
-logger.info(f'gym_bridge {__version__}')
+logger.debug(f'gym_bridge version {__version__} path {__file__}')

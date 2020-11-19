@@ -1,11 +1,3 @@
-
-#
-aido-protocols-daffy
-duckietown-world-daffy
-zuper-typing-z6
-zuper-ipce-z6
-zuper-nodes-z6
-duckietown-gym-daffy
 aido-agents-daffy
 
 
