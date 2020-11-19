@@ -10,6 +10,7 @@ import geometry
 import numpy as np
 import yaml
 from geometry import se2_from_linear_angular, SE2value
+from gym_duckietown.objmesh import get_mesh
 from zuper_commons.types import ZException, ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
 from zuper_nodes_wrapper import Context
@@ -295,7 +296,7 @@ class GymDuckiebotSimulator:
         q = data.pose
         pos, angle = self.env.weird_from_cartesian(q)
 
-        mesh = ObjMesh.get('duckie')
+        mesh = get_mesh('duckie')
         kind = 'duckie'
         height = 0.08
         static = True
@@ -319,7 +320,7 @@ class GymDuckiebotSimulator:
         q = data.configuration.pose
         pos, angle = self.env.weird_from_cartesian(q)
 
-        mesh = ObjMesh.get('duckiebot')
+        mesh = get_mesh('duckiebot')
         height = 0.12
         if data.playable:
             kind = 'duckiebot-player'
