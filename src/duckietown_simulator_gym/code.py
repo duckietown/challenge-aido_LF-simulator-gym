@@ -10,7 +10,6 @@ import geometry
 import numpy as np
 import yaml
 from geometry import se2_from_linear_angular, SE2value
-from gym_duckietown.objmesh import get_mesh
 from zuper_commons.types import ZException, ZValueError
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
 from zuper_nodes_wrapper import Context
@@ -37,7 +36,8 @@ from duckietown_world.world_duckietown.utils import relative_pose
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
 from gym_duckietown.objects import DuckiebotObj, DuckieObj
-from gym_duckietown.simulator import (NotInLane, ObjMesh, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
+from gym_duckietown.objmesh import get_mesh
+from gym_duckietown.simulator import (NotInLane, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
                                       Simulator,
                                       WHEEL_DIST)
 from . import logger
