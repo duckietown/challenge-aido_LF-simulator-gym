@@ -85,6 +85,9 @@ class GymDuckiebotSimulatorConfig:
     debug_profile_summary: bool = False
     """ Make a summary of the performance """
 
+    delay:float = 0.15
+    """ Delay to simulate computation """
+
 
 def is_on_a_tile(dw: PlacedObject, q: SE2value) -> Optional[Tuple[int, int]]:
     it: IterateByTestResult
@@ -346,7 +349,7 @@ class GymDuckiebotSimulator:
                            ROBOT_WIDTH, ROBOT_LENGTH)
 
         if data.playable:
-            pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
+            pdf: PlatformDynamicsFactory = get_DB18_nominal(self.config.delay)  # TODO: parametric
             pc = PC(obj=obj, spawn_configuration=data.configuration, pdf=pdf,
                     blur_time=self.config.blur_time,
                     controlled_by_player=data.owned_by_player)
@@ -679,7 +682,7 @@ class GymDuckiebotSimulator:
                     termination = Termination(when=self.current_time,
                                               desc=msg, code=CODE_OUT_OF_LANE)
                     the_robot.termination = termination
-                    halt_robot(the_robot, q)
+                    halt_robot(the_robot, q, delay=self.config.delay)
                     logger.error(robot_name=robot_name, termination=termination)
 
             if self.config.terminate_on_out_of_tile:
@@ -688,7 +691,7 @@ class GymDuckiebotSimulator:
                     msg = f'Robot {robot_name!r} is out of tile.'
                     termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE)
                     the_robot.termination = termination
-                    halt_robot(the_robot, q)
+                    halt_robot(the_robot, q, delay=self.config.delay)
                     logger.error(robot_name=robot_name, termination=termination)
             if self.config.terminate_on_collision:
                 for duckie_name, duckie in self.duckies.items():
@@ -698,7 +701,7 @@ class GymDuckiebotSimulator:
                         msg = f'Robot {robot_name!r} collided with duckie {duckie_name!r}.'
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
-                        halt_robot(the_robot, q)
+                        halt_robot(the_robot, q, delay=self.config.delay)
                         logger.error(robot_name=robot_name, termination=termination)
 
                 for other_robot, its_state in robot_states.items():
@@ -711,7 +714,7 @@ class GymDuckiebotSimulator:
                         msg = f'Robot {robot_name!r} collided with {other_robot!r}'
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
-                        halt_robot(the_robot, q)
+                        halt_robot(the_robot, q, delay=self.config.delay)
                         logger.error(robot_name=robot_name, termination=termination)
 
         robots_owned_by_player = [k for k, v in self.pcs.items() if v.controlled_by_player]
@@ -786,9 +789,9 @@ def timeit(s, context, min_warn=0.01, enabled=True):
         context.info(msg)
 
 
-def halt_robot(r: R, pose: SE2value):
+def halt_robot(r: R, pose: SE2value, delay:float = 0.15):
     if isinstance(r, PC):
-        pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
+        pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=delay)  # TODO: parametric
         v0 = se2_from_linear_angular([0.0, 0.0], 0.0)
         c0 = pose, v0
         r.state = pdf.initialize(c0=c0, t0=0)
