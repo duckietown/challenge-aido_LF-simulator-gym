@@ -28,6 +28,7 @@ from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20Robo
 from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
                               iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
                               Tile)
+from duckietown_world.gltf.export import get_duckiebot_color_from_colorname
 from duckietown_world.world_duckietown.dynamics_delay import DelayedDynamics
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from duckietown_world.world_duckietown.tile import translation_from_O3
@@ -37,7 +38,8 @@ from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
 from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.objmesh import get_mesh
-from gym_duckietown.simulator import (NotInLane, ROBOT_LENGTH, ROBOT_WIDTH, SAFETY_RAD_MULT,
+from gym_duckietown.simulator import (get_duckiebot_mesh, NotInLane, ROBOT_LENGTH, ROBOT_WIDTH,
+                                      SAFETY_RAD_MULT,
                                       Simulator,
                                       WHEEL_DIST)
 from . import logger
@@ -319,8 +321,8 @@ class GymDuckiebotSimulator:
     def on_received_spawn_robot(self, data: SpawnRobot):
         q = data.configuration.pose
         pos, angle = self.env.weird_from_cartesian(q)
+        mesh = get_duckiebot_mesh(data.color)
 
-        mesh = get_mesh('duckiebot')
         height = 0.12
         if data.playable:
             kind = 'duckiebot-player'
@@ -413,7 +415,6 @@ class GymDuckiebotSimulator:
         step = f'stepping forward {int(delta_time * 1000)} s of simulation time'
         t0 = time.time()
         with timeit(step, context, min_warn=0, enabled=True):
-
             if delta_time > 0:
                 step = 'update_physics_and_observations'
                 with timeit(step, context, min_warn=0, enabled=profile_enabled):
