@@ -15,19 +15,51 @@ from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
 from zuper_nodes_wrapper import Context
 
 from aido_agents.utils_leds import get_blinking_LEDs_emergency
-from aido_schemas import (DB20Commands, DB20Observations, DB20Odometry, DB20RobotObservations,
-                          DB20SetRobotCommands, DTSimDuckieInfo, DTSimDuckieState, DTSimRobotInfo,
-                          DTSimRobotState, DTSimState,
-                          DTSimStateDump, EpisodeStart, GetDuckieState, GetRobotObservations, GetRobotState,
-                          JPGImage, LEDSCommands,
-                          Metric, PerformanceMetrics, PWMCommands, RGB,
-                          RobotConfiguration,
-                          RobotInterfaceDescription, RobotName, RobotPerformance, SetMap, SimulationState,
-                          SpawnDuckie, SpawnRobot,
-                          Step, Termination)
-from duckietown_world import (construct_map, DuckietownMap, DynamicModel, get_lane_poses, GetLanePoseResult,
-                              iterate_by_class, IterateByTestResult, PlacedObject, PlatformDynamicsFactory,
-                              Tile)
+from aido_schemas import (
+    DB20Commands,
+    DB20Observations,
+    DB20Odometry,
+    DB20RobotObservations,
+    DB20SetRobotCommands,
+    DTSimDuckieInfo,
+    DTSimDuckieState,
+    DTSimRobotInfo,
+    DTSimRobotState,
+    DTSimState,
+    DTSimStateDump,
+    EpisodeStart,
+    GetDuckieState,
+    GetRobotObservations,
+    GetRobotState,
+    JPGImage,
+    LEDSCommands,
+    Metric,
+    PerformanceMetrics,
+    PWMCommands,
+    RGB,
+    RobotConfiguration,
+    RobotInterfaceDescription,
+    RobotName,
+    RobotPerformance,
+    SetMap,
+    SimulationState,
+    SpawnDuckie,
+    SpawnRobot,
+    Step,
+    Termination,
+)
+from duckietown_world import (
+    construct_map,
+    DuckietownMap,
+    DynamicModel,
+    get_lane_poses,
+    GetLanePoseResult,
+    iterate_by_class,
+    IterateByTestResult,
+    PlacedObject,
+    PlatformDynamicsFactory,
+    Tile,
+)
 from duckietown_world.gltf.export import get_duckiebot_color_from_colorname
 from duckietown_world.world_duckietown.dynamics_delay import DelayedDynamics
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
@@ -38,15 +70,20 @@ from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.graphics import create_frame_buffers
 from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.objmesh import get_mesh
-from gym_duckietown.simulator import (get_duckiebot_mesh, NotInLane, ROBOT_LENGTH, ROBOT_WIDTH,
-                                      SAFETY_RAD_MULT,
-                                      Simulator,
-                                      WHEEL_DIST)
+from gym_duckietown.simulator import (
+    get_duckiebot_mesh,
+    NotInLane,
+    ROBOT_LENGTH,
+    ROBOT_WIDTH,
+    SAFETY_RAD_MULT,
+    Simulator,
+    WHEEL_DIST,
+)
 from . import logger
 
-CODE_OUT_OF_LANE = 'out-of-lane'
-CODE_OUT_OF_TILE = 'out-of-tile'
-CODE_COLLISION = 'collision'
+CODE_OUT_OF_LANE = "out-of-lane"
+CODE_OUT_OF_TILE = "out-of-tile"
+CODE_COLLISION = "collision"
 
 
 @dataclass
@@ -60,7 +97,8 @@ class GymDuckiebotSimulatorConfig:
         will be generated quicker than this.
 
     """
-    env_constructor: str = 'Simulator'
+
+    env_constructor: str = "Simulator"
     env_parameters: dict = None
     camera_dt: float = 1 / 15.0
     render_dt: float = 1 / (15.0 * 7)
@@ -142,16 +180,20 @@ class PC(R):
 
     pdf: PlatformDynamicsFactory
 
-    def __init__(self, obj: DuckiebotObj, spawn_configuration,
-                 pdf: PlatformDynamicsFactory,
-                 controlled_by_player: bool,
-                 blur_time: float):
+    def __init__(
+        self,
+        obj: DuckiebotObj,
+        spawn_configuration,
+        pdf: PlatformDynamicsFactory,
+        controlled_by_player: bool,
+        blur_time: float,
+    ):
         R.__init__(self, obj=obj)
         self.blur_time = blur_time
         self.controlled_by_player = controlled_by_player
-        black = RGB(.0, 1.0, .0)
+        black = RGB(0.0, 1.0, 0.0)
         leds = LEDSCommands(black, black, black, black, black)
-        wheels = PWMCommands(.0, .0)
+        wheels = PWMCommands(0.0, 0.0)
         self.last_commands = DB20Commands(LEDS=leds, wheels=wheels)
         self.last_observations = None
 
@@ -184,7 +226,7 @@ class PC(R):
                 to_average.append(self.render_observations[i])
 
         try:
-            obs0 = to_average[0].astype('float32')
+            obs0 = to_average[0].astype("float32")
 
             for obs in to_average[1:]:
                 obs0 += obs
@@ -192,12 +234,12 @@ class PC(R):
         except IndexError:
             obs = self.render_observations[0]
 
-        obs = obs.astype('uint8')
+        obs = obs.astype("uint8")
         if self.termination is not None:
             obs = rgb2grayed(obs)
             font = cv2.FONT_HERSHEY_SIMPLEX
             font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
-            cv2.putText(obs, 'Wasted', (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
@@ -205,9 +247,11 @@ class PC(R):
         s: DelayedDynamics = self.state
         sd = cast(DynamicModel, s.state)
         resolution_rad = sd.parameters.encoder_resolution_rad
-        odometry = DB20Odometry(axis_right_rad=sd.axis_right_obs_rad,
-                                axis_left_rad=sd.axis_left_rad,
-                                resolution_rad=resolution_rad)
+        odometry = DB20Odometry(
+            axis_right_rad=sd.axis_right_obs_rad,
+            axis_left_rad=sd.axis_left_rad,
+            resolution_rad=resolution_rad,
+        )
         self.obs = DB20Observations(camera, odometry)
         self.last_observations_time = current_time
 
@@ -220,7 +264,7 @@ def rgb2grayed(rgb):
     gray = r * 299.0 / 1000 + g * 587.0 / 1000 + b * 114.0 / 1000
     gray = gray.astype("uint8")
 
-    res = np.zeros(shape=rgb.shape, dtype='uint8')
+    res = np.zeros(shape=rgb.shape, dtype="uint8")
     res[:, :, 0] = gray
     res[:, :, 1] = gray
     res[:, :, 2] = gray
@@ -260,18 +304,17 @@ class GymDuckiebotSimulator:
         logger.info(config=self.config)
         environment_class = self.config.env_constructor
         name2class = {
-            'DuckietownEnv': DuckietownEnv,
-            'Simulator': Simulator,
+            "DuckietownEnv": DuckietownEnv,
+            "Simulator": Simulator,
         }
         if not environment_class in name2class:
-            msg = 'Could not find environment class.'
-            raise ZException(msg,
-                             environment_class=environment_class,
-                             available=list(name2class))
+            msg = "Could not find environment class."
+            raise ZException(msg, environment_class=environment_class, available=list(name2class))
 
         klass = name2class[environment_class]
-        logger.info('creating environment', environment_class=environment_class,
-                    env_parameters=env_parameters)
+        logger.info(
+            "creating environment", environment_class=environment_class, env_parameters=env_parameters
+        )
         env = klass(**env_parameters)
         self.set_env(env)
 
@@ -279,7 +322,7 @@ class GymDuckiebotSimulator:
         self.env = env
 
     def on_received_seed(self, context: Context, data: int):
-        context.info(f'Using seed = {data!r}')
+        context.info(f"Using seed = {data!r}")
         random.seed(data)
         np.random.seed(data)
 
@@ -298,21 +341,21 @@ class GymDuckiebotSimulator:
         q = data.pose
         pos, angle = self.env.weird_from_cartesian(q)
 
-        mesh = get_mesh('duckie')
-        kind = 'duckie'
+        mesh = get_mesh("duckie")
+        kind = "duckie"
         height = 0.08
         static = True
 
         obj_desc = {
-            'kind': kind,
-            'mesh': mesh,
-            'pos': pos,
-            'rotate': np.rad2deg(angle),
-            'height': height,
-            'y_rot': np.rad2deg(angle),
-            'static': static,
-            'optional': False,
-            'scale': height / mesh.max_coords[1]
+            "kind": kind,
+            "mesh": mesh,
+            "pos": pos,
+            "rotate": np.rad2deg(angle),
+            "height": height,
+            "y_rot": np.rad2deg(angle),
+            "static": static,
+            "optional": False,
+            "scale": height / mesh.max_coords[1],
         }
         obj = DuckieObj(obj_desc, domain_rand=False, safety_radius_mult=SAFETY_RAD_MULT, walk_distance=0.0)
 
@@ -325,33 +368,36 @@ class GymDuckiebotSimulator:
 
         height = 0.12
         if data.playable:
-            kind = 'duckiebot-player'
+            kind = "duckiebot-player"
             static = True
         else:
-            kind = 'duckiebot'
+            kind = "duckiebot"
 
             static = True  # data.motion == MOTION_PARKED
 
         obj_desc = {
-            'kind': kind,
-            'mesh': mesh,
-            'pos': pos,
-            'rotate': np.rad2deg(angle),
-            'height': height,
-            'y_rot': np.rad2deg(angle),
-            'static': static,
-            'optional': False,
-            'scale': height / mesh.max_coords[1]
+            "kind": kind,
+            "mesh": mesh,
+            "pos": pos,
+            "rotate": np.rad2deg(angle),
+            "height": height,
+            "y_rot": np.rad2deg(angle),
+            "static": static,
+            "optional": False,
+            "scale": height / mesh.max_coords[1],
         }
 
-        obj = DuckiebotObj(obj_desc, False, SAFETY_RAD_MULT, WHEEL_DIST,
-                           ROBOT_WIDTH, ROBOT_LENGTH)
+        obj = DuckiebotObj(obj_desc, False, SAFETY_RAD_MULT, WHEEL_DIST, ROBOT_WIDTH, ROBOT_LENGTH)
 
         if data.playable:
             pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
-            pc = PC(obj=obj, spawn_configuration=data.configuration, pdf=pdf,
-                    blur_time=self.config.blur_time,
-                    controlled_by_player=data.owned_by_player)
+            pc = PC(
+                obj=obj,
+                spawn_configuration=data.configuration,
+                pdf=pdf,
+                blur_time=self.config.blur_time,
+                controlled_by_player=data.owned_by_player,
+            )
 
             self.pcs[data.robot_name] = pc
         else:
@@ -360,17 +406,21 @@ class GymDuckiebotSimulator:
 
     def on_received_get_robot_interface_description(self, context: Context, data: RobotName):
         rid = RobotInterfaceDescription(robot_name=data, observations=JPGImage, commands=PWMCommands)
-        context.write('robot_interface_description', rid)
+        context.write("robot_interface_description", rid)
 
     def on_received_get_robot_performance(self, context: Context, data: RobotName):
         metrics = {}
-        metrics['survival_time'] = Metric(higher_is_better=True, cumulative_value=self.current_time,
-                                          description="Survival time.")
-        metrics['reward'] = Metric(higher_is_better=True, cumulative_value=self.reward_cumulative,
-                                   description="Cumulative agent reward.")
+        metrics["survival_time"] = Metric(
+            higher_is_better=True, cumulative_value=self.current_time, description="Survival time."
+        )
+        metrics["reward"] = Metric(
+            higher_is_better=True,
+            cumulative_value=self.reward_cumulative,
+            description="Cumulative agent reward.",
+        )
         pm = PerformanceMetrics(metrics)
         rid = RobotPerformance(robot_name=data, t_effective=self.current_time, performance=pm)
-        context.write('robot_performance', rid)
+        context.write("robot_performance", rid)
 
     def on_received_episode_start(self, context: Context, data: EpisodeStart):
         self.current_time = 0.0
@@ -386,14 +436,14 @@ class GymDuckiebotSimulator:
         try:
             self.env.reset()
         except BaseException as e:
-            msg = 'Could not initialize environment'
+            msg = "Could not initialize environment"
             raise Exception(msg) from e
 
         for robot, pc in self.pcs.items():
             q, v = pc.state.TSE2_from_state()
             lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
             if not lprs:
-                msg = f'Robot {robot} is out of the lane.'
+                msg = f"Robot {robot} is out of the lane."
                 raise ZException(msg, robot=robot, pc=pc)
 
             verify_pose_validity(context, self.env, pc.spawn_configuration)
@@ -412,17 +462,17 @@ class GymDuckiebotSimulator:
     def on_received_step(self, context: Context, data: Step):
         profile_enabled = self.config.debug_profile
         delta_time = data.until - self.current_time
-        step = f'stepping forward {int(delta_time * 1000)} s of simulation time'
+        step = f"stepping forward {int(delta_time * 1000)} s of simulation time"
         t0 = time.time()
         with timeit(step, context, min_warn=0, enabled=True):
             if delta_time > 0:
-                step = 'update_physics_and_observations'
+                step = "update_physics_and_observations"
                 with timeit(step, context, min_warn=0, enabled=profile_enabled):
                     self.update_physics_and_observations(until=data.until, context=context)
             else:
-                context.warning(f'Already at time {data.until}')
+                context.warning(f"Already at time {data.until}")
 
-            step = 'on_received_step/_compute_done_reward'
+            step = "on_received_step/_compute_done_reward"
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 # noinspection PyProtectedMember
                 d = self.env._compute_done_reward()
@@ -461,7 +511,7 @@ class GymDuckiebotSimulator:
             # we "update" the action in the simulator, but really
             # we are going to move the robot ourself
             last_action = np.array([0.0, 0.0])
-            step = f'update_physics_and_observations/step{i}/update_physics'
+            step = f"update_physics_and_observations/step{i}/update_physics"
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 self.env.update_physics(last_action, delta_time=delta_time)
 
@@ -472,7 +522,7 @@ class GymDuckiebotSimulator:
 
             # every render_dt, render the observations
             if self.current_time - self.last_render_time > render_dt:
-                step = f'update_physics_and_observations/step{i}/render'
+                step = f"update_physics_and_observations/step{i}/render"
                 with timeit(step, context, min_warn=0, enabled=profile_enabled):
                     self.render(context)
                 self.last_render_time = self.current_time
@@ -525,9 +575,9 @@ class GymDuckiebotSimulator:
             # render the observations
 
             if self.config.debug_no_video:
-                obs = np.zeros((480, 640, 3), 'uint8')
+                obs = np.zeros((480, 640, 3), "uint8")
             else:
-                step = f'render/{i}-pc_name/render_obs'
+                step = f"render/{i}-pc_name/render_obs"
                 with timeit(step, context, min_warn=0, enabled=profile_enabled):
                     obs = self.env.render_obs()
             # context.info(f'render {obs.shape} {obs.dtype}')
@@ -542,57 +592,50 @@ class GymDuckiebotSimulator:
         l, r = wheels.motor_left, wheels.motor_right
 
         if max(math.fabs(l), math.fabs(r)) > 1:
-            msg = f'Received invalid PWM commands. They should be between -1 and +1.' \
-                  f' Received left = {l!r}, right = {r!r}.'
+            msg = (
+                f"Received invalid PWM commands. They should be between -1 and +1."
+                f" Received left = {l!r}, right = {r!r}."
+            )
             context.error(msg)
             raise Exception(msg)
         if self.pcs[robot_name].termination is not None:
-            context.info(f'Robot {robot_name} is terminated so inputs are ignored.')
+            context.info(f"Robot {robot_name} is terminated so inputs are ignored.")
             data.commands.wheels.motor_left = 0.0
             data.commands.wheels.motor_right = 0.0
             data.commands.LEDs = get_blinking_LEDs_emergency(self.current_time)
         self.pcs[robot_name].last_commands = data.commands
 
     def on_received_get_robot_observations(self, context: Context, data: GetRobotObservations):
-        step = f'on_received_get_robot_observations'
+        step = f"on_received_get_robot_observations"
         with timeit(step, context, min_warn=0, enabled=self.config.debug_profile):
             robot_name = data.robot_name
             if not robot_name in self.pcs:
-                msg = f'Cannot compute observations for non-pc {robot_name!r}'
-                raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
-                                  npcs=list(self.npcs))
+                msg = f"Cannot compute observations for non-pc {robot_name!r}"
+                raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs), npcs=list(self.npcs))
             pc = self.pcs[robot_name]
             ro = DB20RobotObservations(robot_name, pc.last_observations_time, pc.obs)
             # logger.info('simulator sends', ro=ro)
             # timing information
             t = timestamp_from_seconds(pc.last_observations_time)
             ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
-            timing = TimingInfo(acquired={'image': ts})
-            context.write('robot_observations', ro, with_schema=True, timing=timing)
+            timing = TimingInfo(acquired={"image": ts})
+            context.write("robot_observations", ro, with_schema=True, timing=timing)
 
     def _get_duckie_state(self, duckie_name: str) -> DTSimDuckieState:
         d = self.duckies[duckie_name]
-        state = DTSimDuckieInfo(pose=d.pose,
-                                velocity=np.zeros((3, 3))
-                                )
+        state = DTSimDuckieInfo(pose=d.pose, velocity=np.zeros((3, 3)))
 
-        return DTSimDuckieState(duckie_name=duckie_name,
-                                t_effective=self.current_time,
-                                state=state)
+        return DTSimDuckieState(duckie_name=duckie_name, t_effective=self.current_time, state=state)
 
     def _get_robot_state(self, robot_name: RobotName) -> DTSimRobotState:
         env = self.env
         if robot_name in self.pcs:
             pc = self.pcs[robot_name]
             q, v = pc.state.TSE2_from_state()
-            state = DTSimRobotInfo(pose=q,
-                                   velocity=v,
-                                   leds=pc.last_commands.LEDS,
-                                   pwm=pc.last_commands.wheels,
-                                   )
-            rs = DTSimRobotState(robot_name=robot_name,
-                                 t_effective=self.current_time,
-                                 state=state)
+            state = DTSimRobotInfo(
+                pose=q, velocity=v, leds=pc.last_commands.LEDS, pwm=pc.last_commands.wheels,
+            )
+            rs = DTSimRobotState(robot_name=robot_name, t_effective=self.current_time, state=state)
         elif robot_name in self.npcs:
             npc = self.npcs[robot_name]
             # copy from simualtor
@@ -605,24 +648,19 @@ class GymDuckiebotSimulator:
                 c = obj.leds_color[name]
                 return RGB(float(c[0]), float(c[1]), float(c[2]))
 
-            leds = LEDSCommands(front_right=get('front_right'),
-                                front_left=get('front_left'),
-                                center=get('center'),
-                                back_left=get('back_left'),
-                                back_right=get('back_right'))
+            leds = LEDSCommands(
+                front_right=get("front_right"),
+                front_left=get("front_left"),
+                center=get("center"),
+                back_left=get("back_left"),
+                back_right=get("back_right"),
+            )
             wheels = PWMCommands(0.0, 0.0)  # XXX
-            state = DTSimRobotInfo(pose=q,
-                                   velocity=v,
-                                   leds=leds,
-                                   pwm=wheels,
-                                   )
-            rs = DTSimRobotState(robot_name=robot_name,
-                                 t_effective=self.current_time,
-                                 state=state)
+            state = DTSimRobotInfo(pose=q, velocity=v, leds=leds, pwm=wheels,)
+            rs = DTSimRobotState(robot_name=robot_name, t_effective=self.current_time, state=state)
         else:
-            msg = f'Cannot compute robot state for {robot_name!r}'
-            raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs),
-                              npcs=list(self.npcs))
+            msg = f"Cannot compute robot state for {robot_name!r}"
+            raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs), npcs=list(self.npcs))
         return rs
 
     def on_received_get_robot_state(self, context: Context, data: GetRobotState):
@@ -631,8 +669,8 @@ class GymDuckiebotSimulator:
         # timing information
         t = timestamp_from_seconds(self.current_time)
         ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
-        timing = TimingInfo(acquired={'state': ts})
-        context.write('robot_state', rs, timing=timing)  # , with_schema=True)
+        timing = TimingInfo(acquired={"state": ts})
+        context.write("robot_state", rs, timing=timing)  # , with_schema=True)
 
     def on_received_get_duckie_state(self, context: Context, data: GetDuckieState):
         duckie_name = data.duckie_name
@@ -640,8 +678,8 @@ class GymDuckiebotSimulator:
         # timing information
         t = timestamp_from_seconds(self.current_time)
         ts = TimeSpec(time=t, frame=self.episode_name, clock=context.get_hostname())
-        timing = TimingInfo(acquired={'state': ts})
-        context.write('duckie_state', rs, timing=timing)  # , with_schema=True)
+        timing = TimingInfo(acquired={"state": ts})
+        context.write("duckie_state", rs, timing=timing)  # , with_schema=True)
 
     def on_received_dump_state(self, context: Context):
         duckiebots = {}
@@ -652,10 +690,9 @@ class GymDuckiebotSimulator:
         duckies = {}
         for duckie_name in self.duckies:
             duckies[duckie_name] = self._get_duckie_state(duckie_name).state
-        simstate = DTSimState(t_effective=self.current_time, duckiebots=duckiebots,
-                              duckies=duckies)
+        simstate = DTSimState(t_effective=self.current_time, duckiebots=duckiebots, duckies=duckies)
         res = DTSimStateDump(simstate)
-        context.write('state_dump', res)
+        context.write("state_dump", res)
 
     def on_received_get_sim_state(self, context: Context):
 
@@ -676,9 +713,8 @@ class GymDuckiebotSimulator:
             if self.config.terminate_on_ool:
                 lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
                 if not lprs:
-                    msg = f'Robot {robot_name!r} is out of the lane.'
-                    termination = Termination(when=self.current_time,
-                                              desc=msg, code=CODE_OUT_OF_LANE)
+                    msg = f"Robot {robot_name!r} is out of the lane."
+                    termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_LANE)
                     the_robot.termination = termination
                     halt_robot(the_robot, q)
                     logger.error(robot_name=robot_name, termination=termination)
@@ -686,7 +722,7 @@ class GymDuckiebotSimulator:
             if self.config.terminate_on_out_of_tile:
                 tile_coords = is_on_a_tile(self.dm, q)
                 if tile_coords is None:
-                    msg = f'Robot {robot_name!r} is out of tile.'
+                    msg = f"Robot {robot_name!r} is out of tile."
                     termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE)
                     the_robot.termination = termination
                     halt_robot(the_robot, q)
@@ -696,7 +732,7 @@ class GymDuckiebotSimulator:
                     d = relative_pose(duckie.pose, q)
                     dist = np.linalg.norm(translation_from_O3(d))
                     if dist < self.config.collision_threshold:
-                        msg = f'Robot {robot_name!r} collided with duckie {duckie_name!r}.'
+                        msg = f"Robot {robot_name!r} collided with duckie {duckie_name!r}."
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
                         halt_robot(the_robot, q)
@@ -709,20 +745,21 @@ class GymDuckiebotSimulator:
                     d = relative_pose(q2, q)
                     dist = np.linalg.norm(translation_from_O3(d))
                     if dist < self.config.collision_threshold:
-                        msg = f'Robot {robot_name!r} collided with {other_robot!r}'
+                        msg = f"Robot {robot_name!r} collided with {other_robot!r}"
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
                         halt_robot(the_robot, q)
                         logger.error(robot_name=robot_name, termination=termination)
 
         robots_owned_by_player = [k for k, v in self.pcs.items() if v.controlled_by_player]
-        terminated_robots = [k for k, v in (list(self.pcs.items()) + list(self.npcs.items())) if
-                             v.termination is not None]
+        terminated_robots = [
+            k for k, v in (list(self.pcs.items()) + list(self.npcs.items())) if v.termination is not None
+        ]
         all_player_robots_terminated = len(set(robots_owned_by_player) - set(terminated_robots)) == 0
         done = all_player_robots_terminated
         terminations = {k: v.termination for k, v in all_robots.items()}
         sim_state = SimulationState(done, terminations=terminations)
-        context.write('sim_state', sim_state)
+        context.write("sim_state", sim_state)
 
     def on_received_get_ui_image(self, context: Context):
         self.set_positions_and_commands(protagonist="")
@@ -730,9 +767,9 @@ class GymDuckiebotSimulator:
         S = self.config.topdown_resolution, self.config.topdown_resolution
         if self.config.debug_no_video:
             shape = S[0], S[1], 3
-            top_down_observation = np.zeros(shape, 'uint8')
+            top_down_observation = np.zeros(shape, "uint8")
         else:
-            step = 'on_received_get_ui_image/render_top_down'
+            step = "on_received_get_ui_image/render_top_down"
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 # noinspection PyProtectedMember
                 top_down_observation = self.env._render_img(
@@ -741,20 +778,20 @@ class GymDuckiebotSimulator:
                     self.top_down_multi_fbo,
                     self.top_down_final_fbo,
                     self.top_down_img_array,
-                    top_down=True
+                    top_down=True,
                 )
 
         jpg_data = rgb2jpg(top_down_observation)
         jpg = JPGImage(jpg_data)
-        context.write('ui_image', jpg)
+        context.write("ui_image", jpg)
 
 
 def set_gym_leds(obj: DuckiebotObj, LEDS: LEDSCommands):
-    obj.leds_color['front_right'] = get_rgb_tuple(LEDS.front_right)
-    obj.leds_color['front_left'] = get_rgb_tuple(LEDS.front_left)
-    obj.leds_color['back_right'] = get_rgb_tuple(LEDS.back_right)
-    obj.leds_color['back_left'] = get_rgb_tuple(LEDS.back_left)
-    obj.leds_color['center'] = get_rgb_tuple(LEDS.center)
+    obj.leds_color["front_right"] = get_rgb_tuple(LEDS.front_right)
+    obj.leds_color["front_left"] = get_rgb_tuple(LEDS.front_left)
+    obj.leds_color["back_right"] = get_rgb_tuple(LEDS.back_right)
+    obj.leds_color["back_left"] = get_rgb_tuple(LEDS.back_left)
+    obj.leds_color["center"] = get_rgb_tuple(LEDS.center)
 
 
 def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: float) -> Iterator[float]:
@@ -767,7 +804,7 @@ def get_snapshots(last_obs_time: float, current_time: float, until: float, dt: f
 
 def rgb2jpg(rgb: np.ndarray) -> bytes:
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-    compress = cv2.imencode('.jpg', bgr)[1]
+    compress = cv2.imencode(".jpg", bgr)[1]
     jpg_data = np.array(compress).tobytes()
     return jpg_data
 
@@ -782,7 +819,7 @@ def timeit(s, context, min_warn=0.01, enabled=True):
     t1 = time.time()
 
     delta = t1 - t0
-    msg = f'timeit: {int((t1 - t0) * 1000):4d} ms for {s}'
+    msg = f"timeit: {int((t1 - t0) * 1000):4d} ms for {s}"
     if delta > min_warn:
         context.info(msg)
 
@@ -808,38 +845,38 @@ def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
     # noinspection PyProtectedMember
     tile = env._get_tile(i, j)
 
-    msg = ''
-    msg += f'\ni, j: {i}, {j}'
-    msg += f'\nPose: {geometry.SE2.friendly(q)}'
-    msg += f'\nPose: {geometry.SE2.friendly(q2)}'
-    msg += f'\nCur pos: {cur_pos}'
+    msg = ""
+    msg += f"\ni, j: {i}, {j}"
+    msg += f"\nPose: {geometry.SE2.friendly(q)}"
+    msg += f"\nPose: {geometry.SE2.friendly(q2)}"
+    msg += f"\nCur pos: {cur_pos}"
     context.info(msg)
 
     if tile is None:
-        msg = 'Current pose is not in a tile: \n' + msg
+        msg = "Current pose is not in a tile: \n" + msg
         raise Exception(msg)
 
-    kind = tile['kind']
-    is_straight = kind.startswith('straight')
+    kind = tile["kind"]
+    is_straight = kind.startswith("straight")
 
     context.info(f'Sampled tile  {tile["coords"]} {tile["kind"]} {tile["angle"]}')
 
     if not is_straight:
-        context.info('not on a straight tile')
+        context.info("not on a straight tile")
 
     # noinspection PyProtectedMember
     valid = env._valid_pose(cur_pos, cur_angle)
-    context.info(f'valid: {valid}')
+    context.info(f"valid: {valid}")
 
     try:
         lp = env.get_lane_pos2(cur_pos, cur_angle)
-        context.info(f'Sampled lane pose {lp}')
-        context.info(f'dist: {lp.dist}')
+        context.info(f"Sampled lane pose {lp}")
+        context.info(f"dist: {lp.dist}")
     except NotInLane:
         raise
 
     if not valid:
-        msg = 'Not valid'
+        msg = "Not valid"
         context.error(msg)
 
 

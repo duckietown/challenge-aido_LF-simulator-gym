@@ -14,5 +14,5 @@ def main():
     wrap_direct(node=node, protocol=protocol)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
