@@ -2,7 +2,7 @@ __version__ = "6.0.43"
 
 from zuper_commons.logs import ZLogger
 
-logger = ZLogger("gym_bridge")
+logger = ZLogger(__name__)
 
 
-logger.debug(f"gym_bridge version {__version__} path {__file__}")
+logger.debug(f"duckietown-symulator-gym version {__version__} path {__file__}")
