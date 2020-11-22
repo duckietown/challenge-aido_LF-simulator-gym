@@ -446,7 +446,7 @@ class GymDuckiebotSimulator:
                 msg = f"Robot {robot} is out of the lane."
                 raise ZException(msg, robot=robot, pc=pc)
 
-            verify_pose_validity(context, self.env, pc.spawn_configuration)
+            # verify_pose_validity(context, self.env, pc.spawn_configuration)
             self.env.objects.append(pc.obj)
 
         for _, npc in self.npcs.items():
