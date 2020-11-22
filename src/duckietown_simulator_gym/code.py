@@ -56,6 +56,7 @@ from duckietown_world import (
     GetLanePoseResult,
     iterate_by_class,
     IterateByTestResult,
+    MapFormat1Constants,
     PlacedObject,
     PlatformDynamicsFactory,
     Tile,
@@ -365,14 +366,10 @@ class GymDuckiebotSimulator:
         pos, angle = self.env.weird_from_cartesian(q)
         mesh = get_duckiebot_mesh(data.color)
 
-        height = 0.12
-        if data.playable:
-            kind = "duckiebot-player"
-            static = True
-        else:
-            kind = "duckiebot"
+        height = 0.12  # XXX
 
-            static = True  # data.motion == MOTION_PARKED
+        kind = MapFormat1Constants.KIND_DUCKIEBOT
+        static = True  # data.motion == MOTION_PARKED
 
         obj_desc = {
             "kind": kind,
