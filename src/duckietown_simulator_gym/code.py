@@ -60,7 +60,6 @@ from duckietown_world import (
     PlatformDynamicsFactory,
     Tile,
 )
-from duckietown_world.gltf.export import get_duckiebot_color_from_colorname
 from duckietown_world.world_duckietown.dynamics_delay import DelayedDynamics
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from duckietown_world.world_duckietown.tile import translation_from_O3
@@ -413,11 +412,11 @@ class GymDuckiebotSimulator:
         metrics["survival_time"] = Metric(
             higher_is_better=True, cumulative_value=self.current_time, description="Survival time."
         )
-        metrics["reward"] = Metric(
-            higher_is_better=True,
-            cumulative_value=self.reward_cumulative,
-            description="Cumulative agent reward.",
-        )
+        # metrics["reward"] = Metric(
+        #     higher_is_better=True,
+        #     cumulative_value=self.reward_cumulative,
+        #     description="Cumulative agent reward.",
+        # )
         pm = PerformanceMetrics(metrics)
         rid = RobotPerformance(robot_name=data, t_effective=self.current_time, performance=pm)
         context.write("robot_performance", rid)
@@ -425,7 +424,7 @@ class GymDuckiebotSimulator:
     def on_received_episode_start(self, context: Context, data: EpisodeStart):
         self.current_time = 0.0
         self.last_render_time = -100
-        self.reward_cumulative = 0.0
+        # self.reward_cumulative = 0.0
         self.episode_name = data.episode_name
         self.top_down_observation = None
         TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
@@ -472,11 +471,11 @@ class GymDuckiebotSimulator:
             else:
                 context.warning(f"Already at time {data.until}")
 
-            step = "on_received_step/_compute_done_reward"
-            with timeit(step, context, min_warn=0, enabled=profile_enabled):
-                # noinspection PyProtectedMember
-                d = self.env._compute_done_reward()
-            self.reward_cumulative += d.reward * delta_time
+            # step = "on_received_step/_compute_done_reward"
+            # with timeit(step, context, min_warn=0, enabled=profile_enabled):
+            #     # noinspection PyProtectedMember
+            #     d = self.env._compute_done_reward()
+            # self.reward_cumulative += d.reward * delta_time
             self.current_time = data.until
         dt_real = time.time() - t0
 
