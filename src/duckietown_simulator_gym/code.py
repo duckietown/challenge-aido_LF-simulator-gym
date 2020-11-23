@@ -700,11 +700,23 @@ class GymDuckiebotSimulator:
 
         the_robot: R
         for robot_name, the_robot in all_robots.items():
-            if the_robot.termination:
+            if the_robot.termination is not None:
                 continue
 
             state = robot_states[robot_name]
             q = state.state.pose
+            terminate_on_static_collision = True
+            if terminate_on_static_collision:
+                cur_pos, cur_angle = self.env.weird_from_cartesian(q)
+                collided = self.env._check_intersection_static_obstacles(cur_pos, cur_angle)
+                # logger.info(cur_pos=cur_pos, cur_angle=cur_angle, col=self.env.collidable_corners,
+                #             collided=collided)
+                if collided:
+                    msg = f"Robot {robot_name!r} collided with static obstacles."
+                    termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_LANE)
+                    the_robot.termination = termination
+                    halt_robot(the_robot, q)
+                    logger.error(robot_name=robot_name, termination=termination)
 
             if self.config.terminate_on_ool:
                 lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
