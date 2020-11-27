@@ -1,3 +1,4 @@
+import gc
 import math
 import random
 import time
@@ -67,10 +68,10 @@ from duckietown_world.world_duckietown.tile import translation_from_O3
 from duckietown_world.world_duckietown.tile_map import ij_from_tilename
 from duckietown_world.world_duckietown.utils import relative_pose
 from gym_duckietown.envs import DuckietownEnv
-from gym_duckietown.graphics import create_frame_buffers
 from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.objmesh import get_mesh
 from gym_duckietown.simulator import (
+    FrameBufferMemory,
     get_duckiebot_mesh,
     NotInLane,
     ROBOT_LENGTH,
@@ -225,6 +226,10 @@ class PC(R):
             if math.fabs(current_time - ti) < self.blur_time:
                 to_average.append(self.render_observations[i])
 
+            # need to remove the old stuff, otherwise memory grows unbounded
+            if math.fabs(current_time - ti) > self.blur_time * 3:
+                self.render_observations[i] = None
+
         try:
             obs0 = to_average[0].astype("float32")
 
@@ -237,7 +242,7 @@ class PC(R):
         obs = obs.astype("uint8")
         if self.termination is not None:
             obs = rgb2grayed(obs)
-            font = cv2.FONT_HERSHEY_SIMPLEX
+            # font = cv2.FONT_HERSHEY_SIMPLEX
             font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
             cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
@@ -312,9 +317,8 @@ class GymDuckiebotSimulator:
             raise ZException(msg, environment_class=environment_class, available=list(name2class))
 
         klass = name2class[environment_class]
-        logger.info(
-            "creating environment", environment_class=environment_class, env_parameters=env_parameters
-        )
+        msg = "creating environment"
+        logger.info(msg, environment_class=environment_class, env_parameters=env_parameters)
         env = klass(**env_parameters)
         self.set_env(env)
 
@@ -421,13 +425,12 @@ class GymDuckiebotSimulator:
     def on_received_episode_start(self, context: Context, data: EpisodeStart):
         self.current_time = 0.0
         self.last_render_time = -100
+
+        S = self.config.topdown_resolution
+        self.td = FrameBufferMemory(width=S, height=S)
+
         # self.reward_cumulative = 0.0
         self.episode_name = data.episode_name
-        self.top_down_observation = None
-        TOPDOWN_SIZE = self.config.topdown_resolution, self.config.topdown_resolution
-        shape = TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 4
-        self.top_down_multi_fbo, self.top_down_final_fbo = create_frame_buffers(*shape)
-        self.top_down_img_array = np.zeros(shape=(TOPDOWN_SIZE[0], TOPDOWN_SIZE[1], 3), dtype=np.uint8)
 
         try:
             self.env.reset()
@@ -484,6 +487,8 @@ class GymDuckiebotSimulator:
                 then the simulation speedup is {ratio:.2f} x
             """
             context.info(msg)
+
+        gc.collect()
 
     def update_physics_and_observations(self, until: float, context: Context):
         # we are at self.current_time and need to update until "until"
@@ -780,12 +785,14 @@ class GymDuckiebotSimulator:
             step = "on_received_get_ui_image/render_top_down"
             with timeit(step, context, min_warn=0, enabled=profile_enabled):
                 # noinspection PyProtectedMember
+                td = self.td
+
                 top_down_observation = self.env._render_img(
-                    S[0],
-                    S[1],
-                    self.top_down_multi_fbo,
-                    self.top_down_final_fbo,
-                    self.top_down_img_array,
+                    width=td.width,
+                    height=td.height,
+                    multi_fbo=td.multi_fbo,
+                    final_fbo=td.final_fbo,
+                    img_array=td.img_array,
                     top_down=True,
                 )
 
@@ -873,7 +880,7 @@ def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
         context.info("not on a straight tile")
 
     # noinspection PyProtectedMember
-    valid = env._valid_pose(cur_pos, cur_angle)
+    valid = env._valid_pose(np.array(cur_pos), cur_angle)
     context.info(f"valid: {valid}")
 
     try:
