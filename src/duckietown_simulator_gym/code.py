@@ -305,7 +305,7 @@ def get_min_render_dt(speed: float, angular_deg: float, camera_dt: float) -> flo
     beta0 = np.arctan(D / H)
     beta1 = np.arctan((D + speed * 1.0 / H))
     hori_motion_apparent_motion_deg_s = beta1 - beta0
-    linear_pixel_mov_sec = hori_motion_apparent_motion_deg_s * pixels_deg
+    linear_pixel_mov_sec = hori_motion_apparent_motion_deg_s * pixels_deg * 2
 
     current_pixel_mov_sec = linear_pixel_mov_sec + angular_pixel_mov_sec
 
