@@ -103,7 +103,7 @@ class GymDuckiebotSimulatorConfig:
     env_parameters: dict = None
     camera_dt: float = 1 / 15.0
     render_dt: float = 1 / (15.0 * 7)
-    minimum_physics_dt: float = 1 / 30.0
+    minimum_physics_dt: float = 1 / 200.0
     blur_time: float = 0.05
     topdown_resolution: int = 640
 
@@ -173,6 +173,7 @@ class PC(R):
 
     state: DelayedDynamics
     blur_time: float
+    camera_dt: float
 
     # history of "raw" observations and their timestamps
     render_observations: List[np.array] = field(default_factory=list)
@@ -184,12 +185,15 @@ class PC(R):
     def __init__(
         self,
         obj: DuckiebotObj,
-        spawn_configuration,
+        spawn_configuration: RobotConfiguration,
         pdf: PlatformDynamicsFactory,
         controlled_by_player: bool,
         blur_time: float,
+        camera_dt: float,
     ):
+
         R.__init__(self, obj=obj)
+        self.camera_dt = camera_dt
         self.blur_time = blur_time
         self.controlled_by_player = controlled_by_player
         black = RGB(0.0, 1.0, 0.0)
@@ -216,6 +220,10 @@ class PC(R):
         # context.info(f'update_observations() at {current_time}')
         assert self.render_observations
 
+        dt = current_time - self.last_observations_time
+        if dt < self.camera_dt:
+            return
+
         to_average = []
         n = len(self.render_observations)
         # context.info(str(self.render_timestamps))
@@ -223,26 +231,34 @@ class PC(R):
         for i in range(n):
             ti = self.render_timestamps[i]
 
-            if math.fabs(current_time - ti) < self.blur_time:
+            if math.fabs(current_time - ti) <= self.blur_time:
                 to_average.append(self.render_observations[i])
 
             # need to remove the old stuff, otherwise memory grows unbounded
-            if math.fabs(current_time - ti) > self.blur_time * 3:
+            if math.fabs(current_time - ti) > 5:
                 self.render_observations[i] = None
 
-        try:
+        if not to_average:
+            msg = "Cannot find observations to average"
+            raise ZException(
+                msg,
+                current_time=current_time,
+                render_timestamps=list(reversed(self.render_timestamps))[:10],
+                blur_time=self.blur_time,
+            )
+
+        if len(to_average) == 1:
+            obs = to_average[0]
+        else:
             obs0 = to_average[0].astype("float32")
 
             for obs in to_average[1:]:
                 obs0 += obs
             obs = obs0 / len(to_average)
-        except IndexError:
-            obs = self.render_observations[0]
 
         obs = obs.astype("uint8")
         if self.termination is not None:
             obs = rgb2grayed(obs)
-            # font = cv2.FONT_HERSHEY_SIMPLEX
             font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
             cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
@@ -275,6 +291,28 @@ def rgb2grayed(rgb):
     res[:, :, 2] = gray
 
     return res
+
+
+def get_min_render_dt(speed: float, angular_deg: float, camera_dt: float) -> float:
+    fov_deg = 60.0
+    pixels_fov = 640
+    pixels_deg = pixels_fov / fov_deg
+    max_pixel_mov = 3
+    angular_pixel_mov_sec = np.abs(angular_deg) * pixels_deg
+
+    D = 0.3
+    H = 0.1
+    beta0 = np.arctan(D / H)
+    beta1 = np.arctan((D + speed * 1.0 / H))
+    hori_motion_apparent_motion_deg_s = beta1 - beta0
+    linear_pixel_mov_sec = hori_motion_apparent_motion_deg_s * pixels_deg
+
+    current_pixel_mov_sec = linear_pixel_mov_sec + angular_pixel_mov_sec
+
+    # fps = current_pixel_mov_sec / max_pixel_mov
+    # current_pixel_mov_sec   = * dt <= max_pixel_mov
+    dt_max = min(max_pixel_mov / current_pixel_mov_sec, camera_dt / 2)
+    return dt_max
 
 
 class GymDuckiebotSimulator:
@@ -396,6 +434,7 @@ class GymDuckiebotSimulator:
                 spawn_configuration=data.configuration,
                 pdf=pdf,
                 blur_time=self.config.blur_time,
+                camera_dt=self.config.camera_dt,
                 controlled_by_player=data.owned_by_player,
             )
 
@@ -492,12 +531,12 @@ class GymDuckiebotSimulator:
 
     def update_physics_and_observations(self, until: float, context: Context):
         # we are at self.current_time and need to update until "until"
-        sensor_dt = self.config.camera_dt
-        render_dt = self.config.render_dt
+        # sensor_dt = self.config.camera_dt
+        physics_dt = self.config.minimum_physics_dt
         # XXX
         pc0 = list(self.pcs.values())[0]
         last_observations_time = pc0.last_observations_time
-        snapshots = list(get_snapshots(last_observations_time, self.current_time, until, render_dt))
+        snapshots = list(get_snapshots(last_observations_time, self.current_time, until, physics_dt))
 
         steps = snapshots + [until]
         # context.info(f'current time: {self.current_time}')
@@ -512,9 +551,9 @@ class GymDuckiebotSimulator:
             # we "update" the action in the simulator, but really
             # we are going to move the robot ourself
             last_action = np.array([0.0, 0.0])
-            step = f"update_physics_and_observations/step{i}/update_physics"
-            with timeit(step, context, min_warn=0, enabled=profile_enabled):
-                self.env.update_physics(last_action, delta_time=delta_time)
+            # step = f"update_physics_and_observations/step{i}/update_physics"
+            # with timeit(step, context, min_warn=0, enabled=True):
+            #     self.env.update_physics(last_action, delta_time=delta_time)
 
             for pc_name, pc in self.pcs.items():
                 pc.integrate(delta_time)
@@ -522,15 +561,15 @@ class GymDuckiebotSimulator:
             self.current_time = t1
 
             # every render_dt, render the observations
-            if self.current_time - self.last_render_time > render_dt:
-                step = f"update_physics_and_observations/step{i}/render"
-                with timeit(step, context, min_warn=0, enabled=profile_enabled):
-                    self.render(context)
-                self.last_render_time = self.current_time
+            # if self.current_time - self.last_render_time > render_dt:
+            step = f"update_physics_and_observations/step{i}/render"
+            with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                self.render(context)
+                # self.last_render_time = self.current_time
 
-            if self.current_time - last_observations_time >= sensor_dt:
-                for pc_name, pc in self.pcs.items():
-                    pc.update_observations(context, self.current_time)
+            # if self.current_time - last_observations_time >= sensor_dt:
+            for pc_name, pc in self.pcs.items():
+                pc.update_observations(context, self.current_time)
 
     def set_positions_and_commands(self, protagonist: RobotName):
         self.env.cur_pos = [-100.0, -100.0, -100.0]
@@ -547,7 +586,6 @@ class GymDuckiebotSimulator:
             pc.obj.y_rot = np.rad2deg(cur_angle)
 
             if pc.termination:
-                # dt =
                 set_gym_leds(pc.obj, get_blinking_LEDs_emergency(self.current_time))
             else:
                 if pc.last_commands is not None:
@@ -558,10 +596,6 @@ class GymDuckiebotSimulator:
                 set_gym_leds(npc.obj, get_blinking_LEDs_emergency(self.current_time))
 
     def render(self, context: Context):
-        # context.info(f'render() at {self.current_time}')
-
-        # self.render_set_LEDs()
-        # for each robot that needs observations
         profile_enabled = self.config.debug_profile
 
         for i, (pc_name, pc) in enumerate(self.pcs.items()):
@@ -572,18 +606,33 @@ class GymDuckiebotSimulator:
             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
             self.env.cur_pos = cur_pos
             self.env.cur_angle = cur_angle
+            if pc.render_timestamps:
+                dt = self.current_time - pc.render_timestamps[-1]
+                linear, angular = geometry.linear_angular_from_se2(v)
+                angular_deg = np.rad2deg(angular)
 
-            # render the observations
+                speed = linear[0]
 
-            if self.config.debug_no_video:
-                obs = np.zeros((480, 640, 3), "uint8")
+                dt_max = get_min_render_dt(speed, angular_deg, pc.camera_dt)
+
+                do_it = dt >= dt_max
+                # if do_it:
+                #     context.debug(
+                #         f'{pc_name} t {self.current_time:.4f} dt {dt:.3f} dt_max {dt_max:.3f} ({1 / dt:.1f} fps) w {angular_deg:.1f} '
+                #         f'deg/s {do_it}')
             else:
-                step = f"render/{i}-pc_name/render_obs"
-                with timeit(step, context, min_warn=0, enabled=profile_enabled):
-                    obs = self.env.render_obs()
-            # context.info(f'render {obs.shape} {obs.dtype}')
-            pc.render_observations.append(obs)
-            pc.render_timestamps.append(self.current_time)
+                do_it = True
+
+            if do_it:
+                if self.config.debug_no_video:
+                    obs = np.zeros((480, 640, 3), "uint8")
+                else:
+                    step = f"render/{i}-pc_name/render_obs"
+                    with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                        obs = self.env.render_obs()
+
+                pc.render_observations.append(obs)
+                pc.render_timestamps.append(self.current_time)
 
             self.set_positions_and_commands(protagonist="")
 
