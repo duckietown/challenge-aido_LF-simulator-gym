@@ -13,6 +13,7 @@ _kill_procs() {
 trap _kill_procs SIGTERM
 trap _kill_procs INT
 
+
 # make sure there is no xserver running (only neded for docker-compose)
 #killall Xvfb || true
 rm -f /tmp/.X99-lock || true
