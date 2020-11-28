@@ -15,7 +15,9 @@ trap _kill_procs INT
 
 # make sure there is no xserver running (only neded for docker-compose)
 #killall Xvfb || true
-ls /tmp
+
+echo "Listing /tmp"
+ls -a /tmp
 rm -f /tmp/.X99-lock || true
 
 # Start Xvfbs
