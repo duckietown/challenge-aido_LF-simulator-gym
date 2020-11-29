@@ -763,6 +763,7 @@ class GymDuckiebotSimulator:
             terminate_on_static_collision = True
             if terminate_on_static_collision:
                 cur_pos, cur_angle = self.env.weird_from_cartesian(q)
+                # noinspection PyProtectedMember
                 collided = self.env._check_intersection_static_obstacles(cur_pos, cur_angle)
                 # logger.info(cur_pos=cur_pos, cur_angle=cur_angle, col=self.env.collidable_corners,
                 #             collided=collided)
@@ -837,6 +838,7 @@ class GymDuckiebotSimulator:
                 # noinspection PyProtectedMember
                 td = self.td
 
+                # noinspection PyProtectedMember
                 top_down_observation = self.env._render_img(
                     width=td.width,
                     height=td.height,
