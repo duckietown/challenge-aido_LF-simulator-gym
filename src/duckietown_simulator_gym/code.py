@@ -472,6 +472,7 @@ class GymDuckiebotSimulator:
         self.episode_name = data.episode_name
 
         try:
+            self.env.start_pose = [[0.0, 0.0, 0.0], 0.0]
             self.env.reset()
         except BaseException as e:
             msg = "Could not initialize environment"
