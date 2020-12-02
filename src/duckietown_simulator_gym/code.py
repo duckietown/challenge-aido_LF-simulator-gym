@@ -100,12 +100,24 @@ class GymDuckiebotSimulatorConfig:
     """
 
     env_constructor: str = "Simulator"
+    """ Class for the environment constructor """
     env_parameters: dict = None
+    """ Parameters for the constructor """
+
     camera_dt: float = 1 / 15.0
-    render_dt: float = 1 / (15.0 * 7)
-    minimum_physics_dt: float = 1 / 200.0
+    """ Duckiebot camera interval (seconds) """
+
     blur_time: float = 0.05
+    """ Exposure interval (seconds) """
+
+    max_pixel_mov: float = 3.0
+    """ Max pixel movement before rendering another frame"""
+
+    minimum_physics_dt: float = 1 / 200.0
+    """ delta t for physics"""
+
     topdown_resolution: int = 640
+    """ resolution of top-down image """
 
     terminate_on_ool: bool = False
     """ Terminate on out of lane """
@@ -114,8 +126,9 @@ class GymDuckiebotSimulatorConfig:
     """ Terminate on out of tile """
 
     terminate_on_collision: bool = True
-    collision_threshold: float = 0.15
     """ Terminate on collision """
+
+    collision_threshold: float = 0.15
 
     debug_no_video: bool = False
     """ If true, it skips the rendering and gives back a black image"""
@@ -238,12 +251,13 @@ class PC(R):
             if math.fabs(current_time - ti) > 5:
                 self.render_observations[i] = None
 
+        to_average = self.render_observations[-1]
         if not to_average:
             msg = "Cannot find observations to average"
-            raise ZException(
+            logger.warning(
                 msg,
                 current_time=current_time,
-                render_timestamps=list(reversed(self.render_timestamps))[:10],
+                last_render_timestamps=list(reversed(self.render_timestamps))[:10],
                 blur_time=self.blur_time,
             )
 
@@ -293,11 +307,11 @@ def rgb2grayed(rgb):
     return res
 
 
-def get_min_render_dt(speed: float, angular_deg: float, camera_dt: float) -> float:
+def get_min_render_dt(speed: float, angular_deg: float, camera_dt: float, max_pixel_mov: float) -> float:
     fov_deg = 60.0
     pixels_fov = 640
     pixels_deg = pixels_fov / fov_deg
-    max_pixel_mov = 3
+
     angular_pixel_mov_sec = np.abs(angular_deg) * pixels_deg
 
     D = 0.3
@@ -614,7 +628,9 @@ class GymDuckiebotSimulator:
 
                 speed = linear[0]
 
-                dt_max = get_min_render_dt(speed, angular_deg, pc.camera_dt)
+                dt_max = get_min_render_dt(
+                    speed, angular_deg, pc.camera_dt, max_pixel_mov=self.config.max_pixel_mov
+                )
 
                 do_it = dt >= dt_max
                 # if do_it:
@@ -764,7 +780,7 @@ class GymDuckiebotSimulator:
             if terminate_on_static_collision:
                 cur_pos, cur_angle = self.env.weird_from_cartesian(q)
                 # noinspection PyProtectedMember
-                collided = self.env._check_intersection_static_obstacles(cur_pos, cur_angle)
+                collided = self.env._check_intersection_static_obstacles(np.array(cur_pos), cur_angle)
                 # logger.info(cur_pos=cur_pos, cur_angle=cur_angle, col=self.env.collidable_corners,
                 #             collided=collided)
                 if collided:
