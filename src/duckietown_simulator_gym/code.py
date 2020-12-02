@@ -251,8 +251,8 @@ class PC(R):
             if math.fabs(current_time - ti) > 5:
                 self.render_observations[i] = None
 
-        to_average = [self.render_observations[-1]]
         if not to_average:
+            to_average = [self.render_observations[-1]]
             msg = "Cannot find observations to average"
             logger.warning(
                 msg,
