@@ -1,3 +1,4 @@
 
 requirements.resolved
 dist
+*.egg-info
