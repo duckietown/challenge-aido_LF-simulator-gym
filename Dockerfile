@@ -14,7 +14,7 @@ RUN pip install -U "pip>=20.2"
 COPY requirements.* ./
 RUN cat requirements.* > .requirements.txt
 RUN  pip3 install --use-feature=2020-resolver -r .requirements.txt
-
+RUN pip uninstall dataclasses -y
 RUN pip list
 RUN pipdeptree
 
