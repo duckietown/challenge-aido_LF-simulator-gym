@@ -317,15 +317,15 @@ def get_min_render_dt(speed: float, angular_deg: float, camera_dt: float, max_pi
     D = 0.3
     H = 0.1
     beta0 = np.arctan(D / H)
-    beta1 = np.arctan((D + speed * 1.0 / H))
-    hori_motion_apparent_motion_deg_s = beta1 - beta0
+    beta1 = np.arctan((D + np.abs(speed) * 1.0 / H))
+    hori_motion_apparent_motion_deg_s = np.abs(beta1 - beta0)
     linear_pixel_mov_sec = hori_motion_apparent_motion_deg_s * pixels_deg * 2
 
     current_pixel_mov_sec = linear_pixel_mov_sec + angular_pixel_mov_sec
 
     # fps = current_pixel_mov_sec / max_pixel_mov
     # current_pixel_mov_sec   = * dt <= max_pixel_mov
-    dt_max = min(max_pixel_mov / current_pixel_mov_sec, camera_dt / 2)
+    dt_max = min(max_pixel_mov / current_pixel_mov_sec, camera_dt * 0.99)
     return dt_max
 
 
@@ -577,10 +577,10 @@ class GymDuckiebotSimulator:
 
             # every render_dt, render the observations
             # if self.current_time - self.last_render_time > render_dt:
-            step = f"update_physics_and_observations/step{i}/render"
-            with timeit(step, context, min_warn=0, enabled=profile_enabled):
-                self.render(context)
-                # self.last_render_time = self.current_time
+            # step = f"update_physics_and_observations/step{i}/render t = {t1:.4f}"
+            # with timeit(step, context, min_warn=0, enabled=profile_enabled):
+            self.render(context)
+            # self.last_render_time = self.current_time
 
             # if self.current_time - last_observations_time >= sensor_dt:
             for pc_name, pc in self.pcs.items():
@@ -626,25 +626,30 @@ class GymDuckiebotSimulator:
                 linear, angular = geometry.linear_angular_from_se2(v)
                 angular_deg = np.rad2deg(angular)
 
-                speed = linear[0]
+                speed = np.abs(linear[0])
 
                 dt_max = get_min_render_dt(
                     speed, angular_deg, pc.camera_dt, max_pixel_mov=self.config.max_pixel_mov
                 )
-
+                assert dt_max >= 0, (speed, angular_deg, pc.camera_dt, self.config.max_pixel_mov)
+                want_fps = int(1 / dt_max)
+                s = f"speed {speed:.3f} m/s, {angular_deg:.1f} deg/s - max pixel {self.config.max_pixel_mov}"
+                s += f" - need {want_fps} fps"
                 do_it = dt >= dt_max
+                # logger.info(f' {do_it} {s}')
                 # if do_it:
                 #     context.debug(
                 #         f'{pc_name} t {self.current_time:.4f} dt {dt:.3f} dt_max {dt_max:.3f} ({1 / dt:.1f} fps) w {angular_deg:.1f} '
                 #         f'deg/s {do_it}')
             else:
                 do_it = True
+                s = ""
 
             if do_it:
                 if self.config.debug_no_video:
                     obs = np.zeros((480, 640, 3), "uint8")
                 else:
-                    step = f"render/{i}-pc_name/render_obs"
+                    step = f"render robot = {pc_name} t = {self.current_time:.4f}  {s}"
                     with timeit(step, context, min_warn=0, enabled=profile_enabled):
                         obs = self.env.render_obs()
 
@@ -864,6 +869,7 @@ class GymDuckiebotSimulator:
                     top_down=True,
                 )
 
+        # logger.info(shape=top_down_observation.shape)
         jpg_data = rgb2jpg(top_down_observation)
         jpg = JPGImage(jpg_data)
         context.write("ui_image", jpg)
