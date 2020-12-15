@@ -639,7 +639,8 @@ class GymDuckiebotSimulator:
                 # logger.info(f' {do_it} {s}')
                 # if do_it:
                 #     context.debug(
-                #         f'{pc_name} t {self.current_time:.4f} dt {dt:.3f} dt_max {dt_max:.3f} ({1 / dt:.1f} fps) w {angular_deg:.1f} '
+                #         f'{pc_name} t {self.current_time:.4f} dt {dt:.3f} dt_max {dt_max:.3f} ({1 /
+                #         dt:.1f} fps) w {angular_deg:.1f} '
                 #         f'deg/s {do_it}')
             else:
                 do_it = True
@@ -663,13 +664,15 @@ class GymDuckiebotSimulator:
         wheels = data.commands.wheels
         l, r = wheels.motor_left, wheels.motor_right
 
-        if max(math.fabs(l), math.fabs(r)) > 1:
-            msg = (
-                f"Received invalid PWM commands. They should be between -1 and +1."
-                f" Received left = {l!r}, right = {r!r}."
-            )
+        if np.isnan(l) or np.isnan(r):
+            msg = "Received NaNs in commands"
             context.error(msg)
-            raise Exception(msg)
+            raise ZException(msg, wheels=wheels)
+
+        if max(math.fabs(l), math.fabs(r)) > 1:
+            msg = f"Received invalid PWM commands. They should be between -1 and +1."
+            context.error(msg)
+            raise ZException(msg, wheels=wheels)
         if self.pcs[robot_name].termination is not None:
             context.info(f"Robot {robot_name} is terminated so inputs are ignored.")
             data.commands.wheels.motor_left = 0.0
