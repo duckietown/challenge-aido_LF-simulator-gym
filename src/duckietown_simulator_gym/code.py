@@ -487,6 +487,7 @@ class GymDuckiebotSimulator:
 
         try:
             self.env.start_pose = [[0.0, 0.0, 0.0], 0.0]
+            self.env.user_tile_start = [0, 0]
             self.env.reset()
         except BaseException as e:
             msg = "Could not initialize environment"
@@ -495,7 +496,7 @@ class GymDuckiebotSimulator:
         for robot, pc in self.pcs.items():
             q, v = pc.state.TSE2_from_state()
             lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
-            if not lprs:
+            if (not lprs) and self.config.terminate_on_ool:
                 msg = f"Robot {robot} is out of the lane."
                 raise ZException(msg, robot=robot, pc=pc)
 

@@ -23,6 +23,14 @@ line = "daffy"
 install_requires = [
     "duckietown-gym-daffy",
     "aido-agents-daffy",
+    "aido-protocols-daffy",
+    "PyGeometry-z6",
+    "zuper-nodes-z6",
+    "zuper-commons-z6",
+    "opencv-python",
+    "PyYAML",
+    "numpy",
+    "duckietown-world-daffy",
 ]
 
 setup(
