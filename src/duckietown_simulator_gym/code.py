@@ -1,5 +1,4 @@
 import gc
-import math
 import random
 import time
 from contextlib import contextmanager
@@ -8,6 +7,7 @@ from typing import cast, Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import geometry
+import math
 import numpy as np
 import yaml
 from geometry import se2_from_linear_angular, SE2value
@@ -128,7 +128,8 @@ class GymDuckiebotSimulatorConfig:
     terminate_on_collision: bool = True
     """ Terminate on collision """
 
-    collision_threshold: float = 0.15
+    duckie_collision_threshold: float = 0.10
+    robot_collision_threshold: float = 0.15
 
     debug_no_video: bool = False
     """ If true, it skips the rendering and gives back a black image"""
@@ -566,7 +567,6 @@ class GymDuckiebotSimulator:
 
             # we "update" the action in the simulator, but really
             # we are going to move the robot ourself
-            last_action = np.array([0.0, 0.0])
             # step = f"update_physics_and_observations/step{i}/update_physics"
             # with timeit(step, context, min_warn=0, enabled=True):
             #     self.env.update_physics(last_action, delta_time=delta_time)
@@ -820,7 +820,7 @@ class GymDuckiebotSimulator:
                 for duckie_name, duckie in self.duckies.items():
                     d = relative_pose(duckie.pose, q)
                     dist = np.linalg.norm(translation_from_O3(d))
-                    if dist < self.config.collision_threshold:
+                    if dist < self.config.duckie_collision_threshold:
                         msg = f"Robot {robot_name!r} collided with duckie {duckie_name!r}."
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
@@ -833,7 +833,7 @@ class GymDuckiebotSimulator:
                     q2 = its_state.state.pose
                     d = relative_pose(q2, q)
                     dist = np.linalg.norm(translation_from_O3(d))
-                    if dist < self.config.collision_threshold:
+                    if dist < self.config.robot_collision_threshold:
                         msg = f"Robot {robot_name!r} collided with {other_robot!r}"
                         termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
                         the_robot.termination = termination
