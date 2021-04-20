@@ -397,7 +397,7 @@ class GymDuckiebotSimulator:
         self.env._interpret_map(map_data)
 
     def on_received_spawn_duckie(self, data: SpawnDuckie):
-        q: FriendlyPose = data.pose
+        q = pose_from_friendly(data.pose)
 
         pos, angle = self.env.weird_from_cartesian(q)
 
@@ -419,10 +419,11 @@ class GymDuckiebotSimulator:
         }
         obj = DuckieObj(obj_desc, domain_rand=False, safety_radius_mult=SAFETY_RAD_MULT, walk_distance=0.0)
 
-        self.duckies[data.name] = Duckie(obj, data.pose)
+        self.duckies[data.name] = Duckie(obj, q)
 
     def on_received_spawn_robot(self, data: SpawnRobot):
-        q = data.configuration.pose
+        q = pose_from_friendly(data.configuration.pose)
+
         pos, angle = self.env.weird_from_cartesian(q)
         mesh = get_duckiebot_mesh(data.color)
 
