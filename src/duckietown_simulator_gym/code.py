@@ -29,6 +29,7 @@ from aido_schemas import (
     DTSimState,
     DTSimStateDump,
     EpisodeStart,
+    FriendlyPose,
     GetDuckieState,
     GetRobotObservations,
     GetRobotState,
@@ -60,20 +61,21 @@ from duckietown_world import (
     MapFormat1Constants,
     PlacedObject,
     PlatformDynamicsFactory,
+    pose_from_friendly,
+    relative_pose,
     Tile,
+    vel_from_friendly,
 )
 from duckietown_world.world_duckietown.dynamics_delay import DelayedDynamics
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from duckietown_world.world_duckietown.tile import translation_from_O3
 from duckietown_world.world_duckietown.tile_map import ij_from_tilename
-from duckietown_world.world_duckietown.utils import relative_pose
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.objmesh import get_mesh
 from gym_duckietown.simulator import (
     FrameBufferMemory,
     get_duckiebot_mesh,
-    NotInLane,
     ROBOT_LENGTH,
     ROBOT_WIDTH,
     SAFETY_RAD_MULT,
@@ -221,8 +223,8 @@ class PC(R):
         self.render_timestamps = []
         self.spawn_configuration = spawn_configuration
 
-        q = spawn_configuration.pose
-        v = spawn_configuration.velocity
+        q = pose_from_friendly(spawn_configuration.pose)
+        v = vel_from_friendly(spawn_configuration.velocity)
         c0 = q, v
         self.pdf = pdf
         self.state = cast(DelayedDynamics, pdf.initialize(c0=c0, t0=0))
@@ -395,7 +397,8 @@ class GymDuckiebotSimulator:
         self.env._interpret_map(map_data)
 
     def on_received_spawn_duckie(self, data: SpawnDuckie):
-        q = data.pose
+        q: FriendlyPose = data.pose
+
         pos, angle = self.env.weird_from_cartesian(q)
 
         mesh = get_mesh("duckie")
@@ -699,7 +702,8 @@ class GymDuckiebotSimulator:
 
     def _get_duckie_state(self, duckie_name: str) -> DTSimDuckieState:
         d = self.duckies[duckie_name]
-        state = DTSimDuckieInfo(pose=d.pose, velocity=np.zeros((3, 3)))
+        pose = pose_from_friendly(d.pose)
+        state = DTSimDuckieInfo(pose=pose, velocity=np.zeros((3, 3)))
 
         return DTSimDuckieState(duckie_name=duckie_name, t_effective=self.current_time, state=state)
 
@@ -925,52 +929,53 @@ def halt_robot(r: R, pose: SE2value):
         r.state = pdf.initialize(c0=c0, t0=0)
 
 
-def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
-    q = spawn_configuration.pose
-    cur_pos, cur_angle = env.weird_from_cartesian(q)
-    q2 = env.cartesian_from_weird(cur_pos, cur_angle)
-
-    # okaysh : set at least one robot to the pose
-    env.cur_pos = cur_pos
-    env.cur_angle = cur_angle
-
-    i, j = env.get_grid_coords(env.cur_pos)
-    # noinspection PyProtectedMember
-    tile = env._get_tile(i, j)
-
-    msg = ""
-    msg += f"\ni, j: {i}, {j}"
-    msg += f"\nPose: {geometry.SE2.friendly(q)}"
-    msg += f"\nPose: {geometry.SE2.friendly(q2)}"
-    msg += f"\nCur pos: {cur_pos}"
-    context.info(msg)
-
-    if tile is None:
-        msg = "Current pose is not in a tile: \n" + msg
-        raise Exception(msg)
-
-    kind = tile["kind"]
-    is_straight = kind.startswith("straight")
-
-    context.info(f'Sampled tile  {tile["coords"]} {tile["kind"]} {tile["angle"]}')
-
-    if not is_straight:
-        context.info("not on a straight tile")
-
-    # noinspection PyProtectedMember
-    valid = env._valid_pose(np.array(cur_pos), cur_angle)
-    context.info(f"valid: {valid}")
-
-    try:
-        lp = env.get_lane_pos2(cur_pos, cur_angle)
-        context.info(f"Sampled lane pose {lp}")
-        context.info(f"dist: {lp.dist}")
-    except NotInLane:
-        raise
-
-    if not valid:
-        msg = "Not valid"
-        context.error(msg)
+#
+# def verify_pose_validity(context: Context, env: Simulator, spawn_configuration):
+#     q = spawn_configuration.pose
+#     cur_pos, cur_angle = env.weird_from_cartesian(q)
+#     q2 = env.cartesian_from_weird(cur_pos, cur_angle)
+#
+#     # okaysh : set at least one robot to the pose
+#     env.cur_pos = cur_pos
+#     env.cur_angle = cur_angle
+#
+#     i, j = env.get_grid_coords(env.cur_pos)
+#     # noinspection PyProtectedMember
+#     tile = env._get_tile(i, j)
+#
+#     msg = ""
+#     msg += f"\ni, j: {i}, {j}"
+#     msg += f"\nPose: {geometry.SE2.friendly(q)}"
+#     msg += f"\nPose: {geometry.SE2.friendly(q2)}"
+#     msg += f"\nCur pos: {cur_pos}"
+#     context.info(msg)
+#
+#     if tile is None:
+#         msg = "Current pose is not in a tile: \n" + msg
+#         raise Exception(msg)
+#
+#     kind = tile["kind"]
+#     is_straight = kind.startswith("straight")
+#
+#     context.info(f'Sampled tile  {tile["coords"]} {tile["kind"]} {tile["angle"]}')
+#
+#     if not is_straight:
+#         context.info("not on a straight tile")
+#
+#     # noinspection PyProtectedMember
+#     valid = env._valid_pose(np.array(cur_pos), cur_angle)
+#     context.info(f"valid: {valid}")
+#
+#     try:
+#         lp = env.get_lane_pos2(cur_pos, cur_angle)
+#         context.info(f"Sampled lane pose {lp}")
+#         context.info(f"dist: {lp.dist}")
+#     except NotInLane:
+#         raise
+#
+#     if not valid:
+#         msg = "Not valid"
+#         context.error(msg)
 
 
 def get_rgb_tuple(x: RGB) -> Tuple[float, float, float]:
