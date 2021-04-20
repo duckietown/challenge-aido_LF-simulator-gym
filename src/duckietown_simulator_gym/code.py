@@ -29,7 +29,6 @@ from aido_schemas import (
     DTSimState,
     DTSimStateDump,
     EpisodeStart,
-    FriendlyPose,
     GetDuckieState,
     GetRobotObservations,
     GetRobotState,
@@ -703,7 +702,7 @@ class GymDuckiebotSimulator:
 
     def _get_duckie_state(self, duckie_name: str) -> DTSimDuckieState:
         d = self.duckies[duckie_name]
-        pose = pose_from_friendly(d.pose)
+        pose: SE2value = d.pose
         state = DTSimDuckieInfo(pose=pose, velocity=np.zeros((3, 3)))
 
         return DTSimDuckieState(duckie_name=duckie_name, t_effective=self.current_time, state=state)
