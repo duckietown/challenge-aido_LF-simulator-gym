@@ -1,1 +1,2 @@
 aido-agents-daffy
+zuper-nodes-z6
