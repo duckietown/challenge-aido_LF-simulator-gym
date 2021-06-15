@@ -10,16 +10,16 @@ RUN apt-get update && apt-get install -y gcc
 
 RUN apt-get install -y xauth
 
-RUN python -m pip install -U "pip>=20.2"
+RUN python3 -m pip install -U "pip>=20.2"
 COPY requirements.* ./
 RUN cat requirements.* > .requirements.txt
-RUN python -m pip install  -r .requirements.txt
-RUN python -m pip uninstall dataclasses -y
-RUN python -m pip list
+RUN python3 -m pip install  -r .requirements.txt
+RUN python3 -m pip uninstall dataclasses -y
+RUN python3 -m pip list
 
 COPY . .
 
-RUN python -m pip install --no-deps .
+RUN python3 -m pip install --no-deps .
 
 RUN node-launch --config node_launch.yaml --check
 
