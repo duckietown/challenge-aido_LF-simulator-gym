@@ -40,5 +40,7 @@ setup(
     package_dir={"": "src"},
     packages=["duckietown_simulator_gym"],
     install_requires=install_requires,
-    entry_points={"console_scripts": [],},
+    entry_points={
+        "console_scripts": [],
+    },
 )
