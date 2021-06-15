@@ -870,9 +870,11 @@ class GymDuckiebotSimulator:
     def on_received_get_ui_image(self, context: Context):
         self.set_positions_and_commands(protagonist="")
         profile_enabled = self.config.debug_profile
-        S = self.config.topdown_resolution, self.config.topdown_resolution
+
+        res = self.config.topdown_resolution or 128
+
         if self.config.debug_no_video or self.td is None:
-            shape = S[0], S[1], 3
+            shape = res, res , 3
             top_down_observation = np.zeros(shape, "uint8")
         else:
             step = "on_received_get_ui_image/render_top_down"
