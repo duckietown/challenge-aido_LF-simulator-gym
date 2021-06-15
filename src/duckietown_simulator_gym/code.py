@@ -91,12 +91,12 @@ CODE_COLLISION = "collision"
 @dataclass
 class GymDuckiebotSimulatorConfig:
     """
-        env_constructor: either "Simulator" or "DuckietownEnv"
+    env_constructor: either "Simulator" or "DuckietownEnv"
 
-        env_parameters: parameters for the constructor
+    env_parameters: parameters for the constructor
 
-        camera_frame_rate: frame rate for the camera. No observations
-        will be generated quicker than this.
+    camera_frame_rate: frame rate for the camera. No observations
+    will be generated quicker than this.
 
     """
 
@@ -205,8 +205,10 @@ class PC(R):
         controlled_by_player: bool,
         blur_time: float,
         camera_dt: float,
+        simulate_camera: bool,
     ):
 
+        self.simulate_camera = simulate_camera
         R.__init__(self, obj=obj)
         self.camera_dt = camera_dt
         self.blur_time = blur_time
@@ -454,11 +456,11 @@ class GymDuckiebotSimulator:
                 blur_time=self.config.blur_time,
                 camera_dt=self.config.camera_dt,
                 controlled_by_player=data.owned_by_player,
+                simulate_camera=data.simulate_camera,
             )
 
             self.pcs[data.robot_name] = pc
         else:
-
             self.npcs[data.robot_name] = NPC(obj)
 
     def on_received_get_robot_interface_description(self, context: Context, data: RobotName):
@@ -651,7 +653,7 @@ class GymDuckiebotSimulator:
                 s = ""
 
             if do_it:
-                if self.config.debug_no_video:
+                if self.config.debug_no_video or not pc.simulate_camera:
                     obs = np.zeros((480, 640, 3), "uint8")
                 else:
                     step = f"render robot = {pc_name} t = {self.current_time:.4f}  {s}"
@@ -713,7 +715,10 @@ class GymDuckiebotSimulator:
             pc = self.pcs[robot_name]
             q, v = pc.state.TSE2_from_state()
             state = DTSimRobotInfo(
-                pose=q, velocity=v, leds=pc.last_commands.LEDS, pwm=pc.last_commands.wheels,
+                pose=q,
+                velocity=v,
+                leds=pc.last_commands.LEDS,
+                pwm=pc.last_commands.wheels,
             )
             rs = DTSimRobotState(robot_name=robot_name, t_effective=self.current_time, state=state)
         elif robot_name in self.npcs:
@@ -736,7 +741,12 @@ class GymDuckiebotSimulator:
                 back_right=get("back_right"),
             )
             wheels = PWMCommands(0.0, 0.0)  # XXX
-            state = DTSimRobotInfo(pose=q, velocity=v, leds=leds, pwm=wheels,)
+            state = DTSimRobotInfo(
+                pose=q,
+                velocity=v,
+                leds=leds,
+                pwm=wheels,
+            )
             rs = DTSimRobotState(robot_name=robot_name, t_effective=self.current_time, state=state)
         else:
             msg = f"Cannot compute robot state for {robot_name!r}"
