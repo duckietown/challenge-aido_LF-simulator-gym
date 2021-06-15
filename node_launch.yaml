@@ -1,0 +1,3 @@
+node: duckietown_simulator_gym.GymDuckiebotSimulator
+protocol: dt_protocols.protocol_collision_checking
+config: {}

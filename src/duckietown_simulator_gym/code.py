@@ -118,7 +118,7 @@ class GymDuckiebotSimulatorConfig:
     """ delta t for physics"""
 
     topdown_resolution: int = 640
-    """ resolution of top-down image """
+    """ resolution of top-down image. Set to 0 for not rendering anything """
 
     terminate_on_ool: bool = False
     """ Terminate on out of lane """
@@ -486,7 +486,10 @@ class GymDuckiebotSimulator:
         self.last_render_time = -100
 
         S = self.config.topdown_resolution
-        self.td = FrameBufferMemory(width=S, height=S)
+        if S:
+            self.td = FrameBufferMemory(width=S, height=S)
+        else:
+            self.td = None
 
         # self.reward_cumulative = 0.0
         self.episode_name = data.episode_name
@@ -868,7 +871,7 @@ class GymDuckiebotSimulator:
         self.set_positions_and_commands(protagonist="")
         profile_enabled = self.config.debug_profile
         S = self.config.topdown_resolution, self.config.topdown_resolution
-        if self.config.debug_no_video:
+        if self.config.debug_no_video or self.td is None:
             shape = S[0], S[1], 3
             top_down_observation = np.zeros(shape, "uint8")
         else:

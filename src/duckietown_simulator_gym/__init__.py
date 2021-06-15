@@ -8,3 +8,4 @@ import os
 path = os.path.dirname(os.path.dirname(__file__))
 
 logger.debug(f"duckietown-symulator-gym version {__version__} path {path}")
+from .code import *

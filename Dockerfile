@@ -13,21 +13,15 @@ RUN apt-get install -y xauth
 RUN pip install -U "pip>=20.2"
 COPY requirements.* ./
 RUN cat requirements.* > .requirements.txt
-RUN  pip3 install --use-feature=2020-resolver -r .requirements.txt
+RUN pip3 install  -r .requirements.txt
 RUN pip uninstall dataclasses -y
 RUN pip list
 #RUN pipdeptree # will fail
-
-
-
 
 COPY . .
 
 RUN pip install --no-deps .
 
-RUN python3 -c "from duckietown_simulator_gym import *"
-
-# needs X
-#RUN pwd && ls && PYTHON_PATH=. python3 -c "import gym_bridge"
+RUN node-launch --config node_launch.yaml --check
 
 ENTRYPOINT ["/bin/bash", "/project/launch.sh"]
