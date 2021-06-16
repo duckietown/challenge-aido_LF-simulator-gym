@@ -1,3 +1,6 @@
 VERSION=0.1.0
-TYPE=none
+TYPE=aido-container
 TYPE_VERSION=1
+CONTAINER_TARGET=duckietown/challenge-aido_lf-simulator-gym:daffy-amd64
+CONTAINER_BUILD_COMMAND=dts build_utils aido-container-build --use-branch daffy
+
