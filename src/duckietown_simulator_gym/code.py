@@ -12,15 +12,11 @@ import numpy as np
 import yaml
 from geometry import se2_from_linear_angular, SE2value
 from zuper_commons.types import ZException, ZValueError
-from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
-from zuper_nodes_wrapper import Context
 
 from aido_agents.utils_leds import get_blinking_LEDs_emergency
 from aido_schemas import (
     DB20Commands,
-    DB20Observations,
-    DB20Odometry,
-    DB20RobotObservations,
+    DB20ObservationsWithTimestamp, DB20OdometryWithTimestamp, DB20RobotObservationsWithTimestamp,
     DB20SetRobotCommands,
     DTSimDuckieInfo,
     DTSimDuckieState,
@@ -33,7 +29,7 @@ from aido_schemas import (
     GetRobotObservations,
     GetRobotState,
     JPGImage,
-    LEDSCommands,
+    JPGImageWithTimestamp, LEDSCommands,
     Metric,
     PerformanceMetrics,
     PWMCommands,
@@ -81,6 +77,8 @@ from gym_duckietown.simulator import (
     Simulator,
     WHEEL_DIST,
 )
+from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
+from zuper_nodes_wrapper import Context
 from . import logger
 
 CODE_OUT_OF_LANE = "out-of-lane"
@@ -180,7 +178,7 @@ class Duckie:
 class PC(R):
     spawn_configuration: RobotConfiguration
     last_commands: DB20Commands
-    obs: DB20Observations
+    obs: DB20ObservationsWithTimestamp
 
     last_observations: Optional[np.ndarray]
 
@@ -282,16 +280,17 @@ class PC(R):
 
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
-        camera = JPGImage(jpg_data)
+        camera = JPGImageWithTimestamp(jpg_data=jpg_data, timestamp=current_time)
         s: DelayedDynamics = self.state
         sd = cast(DynamicModel, s.state)
         resolution_rad = sd.parameters.encoder_resolution_rad
-        odometry = DB20Odometry(
+        odometry = DB20OdometryWithTimestamp(
+            timestamp=current_time,
             axis_right_rad=sd.axis_right_obs_rad,
             axis_left_rad=sd.axis_left_rad,
             resolution_rad=resolution_rad,
         )
-        self.obs = DB20Observations(camera, odometry)
+        self.obs = DB20ObservationsWithTimestamp(camera, odometry)
         self.last_observations_time = current_time
 
 
@@ -697,7 +696,7 @@ class GymDuckiebotSimulator:
                 msg = f"Cannot compute observations for non-pc {robot_name!r}"
                 raise ZValueError(msg, robot_name=robot_name, pcs=list(self.pcs), npcs=list(self.npcs))
             pc = self.pcs[robot_name]
-            ro = DB20RobotObservations(robot_name, pc.last_observations_time, pc.obs)
+            ro = DB20RobotObservationsWithTimestamp(robot_name, pc.last_observations_time, pc.obs)
             # logger.info('simulator sends', ro=ro)
             # timing information
             t = timestamp_from_seconds(pc.last_observations_time)
@@ -874,7 +873,7 @@ class GymDuckiebotSimulator:
         res = self.config.topdown_resolution or 128
 
         if self.config.debug_no_video or self.td is None:
-            shape = res, res , 3
+            shape = res, res, 3
             top_down_observation = np.zeros(shape, "uint8")
         else:
             step = "on_received_get_ui_image/render_top_down"
