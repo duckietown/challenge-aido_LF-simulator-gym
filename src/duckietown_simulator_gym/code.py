@@ -78,7 +78,7 @@ from gym_duckietown.simulator import (
     WHEEL_DIST,
 )
 from zuper_nodes import TimeSpec, timestamp_from_seconds, TimingInfo
-from zuper_nodes_wrapper import Context
+from zuper_nodes_wrapper import Context, Profiler
 from . import logger
 
 CODE_OUT_OF_LANE = "out-of-lane"
@@ -86,12 +86,16 @@ CODE_OUT_OF_TILE = "out-of-tile"
 CODE_COLLISION = "collision"
 
 
-@contextmanager
-def show_time(s: str):
-    t0 = time.time()
-    yield
-    dt = time.time() - t0
-    logger.debug(f'timer: {dt:.3f} for {s}')
+# from statistics import mean
+
+
+#
+# @contextmanager
+# def show_time(s: str):
+#     t0 = time.time()
+#     yield
+#     dt = time.time() - t0
+#     logger.debug(f'timer: {dt:.3f} for {s}')
 
 
 @dataclass
@@ -235,60 +239,68 @@ class PC(R):
         c0 = q, v
         self.pdf = pdf
         self.state = cast(DelayedDynamics, pdf.initialize(c0=c0, t0=0))
+        black_obs = np.zeros((480, 640, 3), 'uint8')
+        self.black_jpg_data = rgb2jpg(black_obs)
 
     def integrate(self, dt: float):
         self.state = self.state.integrate(dt, self.last_commands.wheels)
 
-    def update_observations(self, context: Context, current_time: float):
+    def update_observations(self, context: Context, current_time: float, profiler: Profiler):
         # context.info(f'update_observations() at {current_time}')
         assert self.render_observations
 
-        dt = current_time - self.last_observations_time
-        if dt < self.camera_dt:
-            return
+        if self.simulate_camera:
 
-        to_average = []
-        n = len(self.render_observations)
-        # context.info(str(self.render_timestamps))
-        # context.info(f'now {self.current_time}')
-        for i in range(n):
-            ti = self.render_timestamps[i]
+            dt = current_time - self.last_observations_time
+            if dt < self.camera_dt:
+                return
 
-            if math.fabs(current_time - ti) <= self.blur_time:
-                to_average.append(self.render_observations[i])
+            to_average = []
+            n = len(self.render_observations)
+            # context.info(str(self.render_timestamps))
+            # context.info(f'now {self.current_time}')
+            for i in range(n):
+                ti = self.render_timestamps[i]
 
-            # need to remove the old stuff, otherwise memory grows unbounded
-            if math.fabs(current_time - ti) > 5:
-                self.render_observations[i] = None
+                if math.fabs(current_time - ti) <= self.blur_time:
+                    to_average.append(self.render_observations[i])
 
-        if not to_average:
-            to_average = [self.render_observations[-1]]
-            msg = "Cannot find observations to average"
-            logger.warning(
-                msg,
-                current_time=current_time,
-                last_render_timestamps=list(reversed(self.render_timestamps))[:10],
-                blur_time=self.blur_time,
-            )
+                # need to remove the old stuff, otherwise memory grows unbounded
+                if math.fabs(current_time - ti) > 5:
+                    self.render_observations[i] = None
 
-        if len(to_average) == 1:
-            obs = to_average[0]
+            if not to_average:
+                to_average = [self.render_observations[-1]]
+                msg = "Cannot find observations to average"
+                logger.warning(
+                    msg,
+                    current_time=current_time,
+                    last_render_timestamps=list(reversed(self.render_timestamps))[:10],
+                    blur_time=self.blur_time,
+                )
+
+            with profiler.prof('averaging'):
+                if len(to_average) == 1:
+                    obs = to_average[0]
+                else:
+                    obs0 = to_average[0].astype("float32")
+
+                    for obs in to_average[1:]:
+                        obs0 += obs
+                    obs = obs0 / len(to_average)
+
+            obs = obs.astype("uint8")
+            if self.termination is not None:
+                with profiler.prof('writing-wasted'):
+                    obs = rgb2grayed(obs)
+                    font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
+                    cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
+
+            # context.info(f'update {obs.shape} {obs.dtype}')
+            with profiler.prof('rgb2jpg'):
+                jpg_data = rgb2jpg(obs)
         else:
-            obs0 = to_average[0].astype("float32")
-
-            for obs in to_average[1:]:
-                obs0 += obs
-            obs = obs0 / len(to_average)
-
-        obs = obs.astype("uint8")
-        if self.termination is not None:
-            with show_time('writing-wasted'):
-                obs = rgb2grayed(obs)
-                font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
-                cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
-
-        # context.info(f'update {obs.shape} {obs.dtype}')
-        jpg_data = rgb2jpg(obs)
+            jpg_data = self.black_jpg_data
         camera = JPGImageWithTimestamp(jpg_data=jpg_data, timestamp=current_time)
         s: DelayedDynamics = self.state
         sd = cast(DynamicModel, s.state)
@@ -359,6 +371,7 @@ class GymDuckiebotSimulator:
     duckies: Dict[RobotName, Duckie]
 
     dm: DuckietownMap
+    profiler: Profiler
 
     def __init__(self):
         self.clear()
@@ -490,6 +503,9 @@ class GymDuckiebotSimulator:
         context.write("robot_performance", rid)
 
     def on_received_episode_start(self, context: Context, data: EpisodeStart):
+        profiler = context.get_profiler()
+        self.step = 0
+
         self.current_time = 0.0
         self.last_render_time = -100
 
@@ -528,9 +544,12 @@ class GymDuckiebotSimulator:
 
         self.render(context)
         for _, pc in self.pcs.items():
-            pc.update_observations(context, self.current_time)
+            pc.update_observations(context, self.current_time, profiler)
 
     def on_received_step(self, context: Context, data: Step):
+        self.step += 1
+        profiler = context.get_profiler()
+
         profile_enabled = self.config.debug_profile
         delta_time = data.until - self.current_time
         step = f"stepping forward {int(delta_time * 1000)} s of simulation time"
@@ -538,8 +557,9 @@ class GymDuckiebotSimulator:
         with timeit(step, context, min_warn=0, enabled=True):
             if delta_time > 0:
                 step = "update_physics_and_observations"
-                with timeit(step, context, min_warn=0, enabled=profile_enabled):
-                    self.update_physics_and_observations(until=data.until, context=context)
+                with profiler.prof('update_physics_and_observations'):
+                    with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                        self.update_physics_and_observations(until=data.until, context=context)
             else:
                 context.warning(f"Already at time {data.until}")
 
@@ -560,9 +580,14 @@ class GymDuckiebotSimulator:
             """
             context.info(msg)
 
-        gc.collect()
+        if self.step % 50 == 0:
+            with profiler.prof('gc-collect'):
+                gc.collect()
+
+            logger.info('stats\n\n' + profiler.show_stats())
 
     def update_physics_and_observations(self, until: float, context: Context):
+        profiler = context.get_profiler()
         # we are at self.current_time and need to update until "until"
         # sensor_dt = self.config.camera_dt
         physics_dt = self.config.minimum_physics_dt
@@ -587,9 +612,9 @@ class GymDuckiebotSimulator:
             # with timeit(step, context, min_warn=0, enabled=True):
             #     self.env.update_physics(last_action, delta_time=delta_time)
 
-            with show_time(f'integrate'):
+            with profiler.prof(f'integrate'):
                 for pc_name, pc in self.pcs.items():
-                    with show_time(f'integrate-{pc_name}'):
+                    with profiler.prof(pc_name):
                         pc.integrate(delta_time)
 
             self.current_time = t1
@@ -598,15 +623,15 @@ class GymDuckiebotSimulator:
             # if self.current_time - self.last_render_time > render_dt:
             # step = f"update_physics_and_observations/step{i}/render t = {t1:.4f}"
             # with timeit(step, context, min_warn=0, enabled=profile_enabled):
-            with show_time(f'render'):
+            with profiler.prof(f'render'):
                 self.render(context)
             # self.last_render_time = self.current_time
 
             # if self.current_time - last_observations_time >= sensor_dt:
-            with show_time(f'update_observations'):
+            with profiler.prof(f'update_observations'):
                 for pc_name, pc in self.pcs.items():
-                    with show_time(f'update_observations-{pc_name}'):
-                        pc.update_observations(context, self.current_time)
+                    with profiler.prof(pc_name):
+                        pc.update_observations(context, self.current_time, profiler)
 
     def set_positions_and_commands(self, protagonist: RobotName):
         self.env.cur_pos = [-100.0, -100.0, -100.0]
