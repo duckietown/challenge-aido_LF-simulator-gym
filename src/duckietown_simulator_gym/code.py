@@ -821,74 +821,93 @@ class GymDuckiebotSimulator:
         context.write("state_dump", res)
 
     def on_received_get_sim_state(self, context: Context):
-
+        profiler = context.get_profiler()
         all_robots = {}
         all_robots.update(self.pcs)
         all_robots.update(self.npcs)
         robot_states: Dict[str, DTSimRobotState]
-        robot_states = {k: self._get_robot_state(k) for k in all_robots}
+
+        with profiler.prof('_get_robot_state'):
+            robot_states = {k: self._get_robot_state(k) for k in all_robots}
 
         the_robot: R
-        for robot_name, the_robot in all_robots.items():
-            if the_robot.termination is not None:
-                continue
-
-            state = robot_states[robot_name]
-            q = state.state.pose
-            terminate_on_static_collision = True
-            if terminate_on_static_collision:
-                cur_pos, cur_angle = self.env.weird_from_cartesian(q)
-                # noinspection PyProtectedMember
-                collided = self.env._check_intersection_static_obstacles(np.array(cur_pos), cur_angle)
-                # logger.info(cur_pos=cur_pos, cur_angle=cur_angle, col=self.env.collidable_corners,
-                #             collided=collided)
-                if collided:
-                    msg = f"Robot {robot_name!r} collided with static obstacles."
-                    termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_LANE)
-                    the_robot.termination = termination
-                    halt_robot(the_robot, q)
-                    logger.error(robot_name=robot_name, termination=termination)
-
-            if self.config.terminate_on_ool:
-                lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
-                if not lprs:
-                    msg = f"Robot {robot_name!r} is out of the lane."
-                    termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_LANE)
-                    the_robot.termination = termination
-                    halt_robot(the_robot, q)
-                    logger.error(robot_name=robot_name, termination=termination)
-
-            if self.config.terminate_on_out_of_tile:
-                tile_coords = is_on_a_tile(self.dm, q)
-                if tile_coords is None:
-                    msg = f"Robot {robot_name!r} is out of tile."
-                    termination = Termination(when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE)
-                    the_robot.termination = termination
-                    halt_robot(the_robot, q)
-                    logger.error(robot_name=robot_name, termination=termination)
-            if self.config.terminate_on_collision:
-                for duckie_name, duckie in self.duckies.items():
-                    d = relative_pose(duckie.pose, q)
-                    dist = np.linalg.norm(translation_from_O3(d))
-                    if dist < self.config.duckie_collision_threshold:
-                        msg = f"Robot {robot_name!r} collided with duckie {duckie_name!r}."
-                        termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
-                        the_robot.termination = termination
-                        halt_robot(the_robot, q)
-                        logger.error(robot_name=robot_name, termination=termination)
-
-                for other_robot, its_state in robot_states.items():
-                    if other_robot == robot_name:
+        with profiler.prof('checking'):
+            for robot_name, the_robot in all_robots.items():
+                with profiler.prof('robot_name'):
+                    if the_robot.termination is not None:
                         continue
-                    q2 = its_state.state.pose
-                    d = relative_pose(q2, q)
-                    dist = np.linalg.norm(translation_from_O3(d))
-                    if dist < self.config.robot_collision_threshold:
-                        msg = f"Robot {robot_name!r} collided with {other_robot!r}"
-                        termination = Termination(when=self.current_time, desc=msg, code=CODE_COLLISION)
-                        the_robot.termination = termination
-                        halt_robot(the_robot, q)
-                        logger.error(robot_name=robot_name, termination=termination)
+
+                    state = robot_states[robot_name]
+                    q = state.state.pose
+                    terminate_on_static_collision = True
+
+                    if terminate_on_static_collision:
+                        with profiler.prof('check-collision'):
+                            cur_pos, cur_angle = self.env.weird_from_cartesian(q)
+                            # noinspection PyProtectedMember
+                            collided = self.env._check_intersection_static_obstacles(np.array(cur_pos),
+                                                                                     cur_angle)
+                            # logger.info(cur_pos=cur_pos, cur_angle=cur_angle,
+                            # col=self.env.collidable_corners,
+                            #             collided=collided)
+                            if collided:
+                                msg = f"Robot {robot_name!r} collided with static obstacles."
+                                termination = Termination(when=self.current_time, desc=msg,
+                                                          code=CODE_OUT_OF_LANE)
+                                the_robot.termination = termination
+                                halt_robot(the_robot, q)
+                                logger.error(robot_name=robot_name, termination=termination)
+
+                    if self.config.terminate_on_ool:
+                        with profiler.prof('check-inside-lane'):
+                            lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
+                            if not lprs:
+                                msg = f"Robot {robot_name!r} is out of the lane."
+                                termination = Termination(when=self.current_time, desc=msg,
+                                                          code=CODE_OUT_OF_LANE)
+                                the_robot.termination = termination
+                                halt_robot(the_robot, q)
+                                logger.error(robot_name=robot_name, termination=termination)
+
+                    if self.config.terminate_on_out_of_tile:
+                        with profiler.prof('check-on-a-tile'):
+
+                            tile_coords = is_on_a_tile(self.dm, q)
+                            if tile_coords is None:
+                                msg = f"Robot {robot_name!r} is out of tile."
+                                termination = Termination(when=self.current_time, desc=msg,
+                                                          code=CODE_OUT_OF_TILE)
+                                the_robot.termination = termination
+                                halt_robot(the_robot, q)
+                                logger.error(robot_name=robot_name, termination=termination)
+                    if self.config.terminate_on_collision:
+                        with profiler.prof('check-duckie-collision'):
+
+                            for duckie_name, duckie in self.duckies.items():
+                                d = relative_pose(duckie.pose, q)
+                                dist = np.linalg.norm(translation_from_O3(d))
+                                if dist < self.config.duckie_collision_threshold:
+                                    msg = f"Robot {robot_name!r} collided with duckie {duckie_name!r}."
+                                    termination = Termination(when=self.current_time, desc=msg,
+                                                              code=CODE_COLLISION)
+                                    the_robot.termination = termination
+                                    halt_robot(the_robot, q)
+                                    logger.error(robot_name=robot_name, termination=termination)
+
+                        with profiler.prof('check-robot-collision'):
+                            for other_robot, its_state in robot_states.items():
+                                if other_robot == robot_name:
+                                    continue
+                                q2 = its_state.state.pose
+                                d = relative_pose(q2, q)
+                                dist = np.linalg.norm(translation_from_O3(d))
+                                if dist < self.config.robot_collision_threshold:
+                                    msg = f"Robot {robot_name!r} collided with {other_robot!r}"
+                                    termination = Termination(when=self.current_time, desc=msg,
+                                                              code=CODE_COLLISION)
+                                    the_robot.termination = termination
+                                    halt_robot(the_robot, q)
+                                    logger.error(robot_name=robot_name, termination=termination)
 
         robots_owned_by_player = [k for k, v in self.pcs.items() if v.controlled_by_player]
         terminated_robots = [
@@ -901,7 +920,10 @@ class GymDuckiebotSimulator:
         context.write("sim_state", sim_state)
 
     def on_received_get_ui_image(self, context: Context):
-        self.set_positions_and_commands(protagonist="")
+        profiler = context.get_profiler()
+
+        with profiler.prof('set-positions'):
+            self.set_positions_and_commands(protagonist="")
         profile_enabled = self.config.debug_profile
 
         res = self.config.topdown_resolution or 128
@@ -915,18 +937,20 @@ class GymDuckiebotSimulator:
                 # noinspection PyProtectedMember
                 td = self.td
 
-                # noinspection PyProtectedMember
-                top_down_observation = self.env._render_img(
-                    width=td.width,
-                    height=td.height,
-                    multi_fbo=td.multi_fbo,
-                    final_fbo=td.final_fbo,
-                    img_array=td.img_array,
-                    top_down=True,
-                )
+                with profiler.prof('render'):
+                    # noinspection PyProtectedMember
+                    top_down_observation = self.env._render_img(
+                        width=td.width,
+                        height=td.height,
+                        multi_fbo=td.multi_fbo,
+                        final_fbo=td.final_fbo,
+                        img_array=td.img_array,
+                        top_down=True,
+                    )
 
         # logger.info(shape=top_down_observation.shape)
-        jpg_data = rgb2jpg(top_down_observation)
+        with profiler.prof('rgb2jpg'):
+            jpg_data = rgb2jpg(top_down_observation)
         jpg = JPGImage(jpg_data)
         context.write("ui_image", jpg)
 
