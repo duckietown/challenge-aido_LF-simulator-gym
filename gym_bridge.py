@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 
-# from zuper_commons.logs import setup_logging
 import logging
 import os
 

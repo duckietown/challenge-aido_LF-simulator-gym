@@ -291,7 +291,9 @@ class PC(R):
                         obs0 += obs
                     obs = obs0 / len(to_average)
 
-            obs = self.distortion.distort(obs)
+            with profiler.prof('distortion'):
+                obs = self.distortion.distort(obs)
+
             obs = obs.astype("uint8")
             if self.termination is not None:
                 with profiler.prof('writing-wasted'):
@@ -376,6 +378,7 @@ class GymDuckiebotSimulator:
     dm: DuckietownMap
     profiler: Profiler
     distort: bool
+
     def __init__(self):
         self.clear()
 
