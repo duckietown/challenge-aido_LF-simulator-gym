@@ -86,6 +86,14 @@ CODE_OUT_OF_TILE = "out-of-tile"
 CODE_COLLISION = "collision"
 
 
+@contextmanager
+def show_time(s: str):
+    t0 = time.time()
+    yield
+    dt = time.time() - t0
+    logger.debug(f'timer: {dt:.3f} for {s}')
+
+
 @dataclass
 class GymDuckiebotSimulatorConfig:
     """
@@ -274,9 +282,10 @@ class PC(R):
 
         obs = obs.astype("uint8")
         if self.termination is not None:
-            obs = rgb2grayed(obs)
-            font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
-            cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
+            with show_time('writing-wasted'):
+                obs = rgb2grayed(obs)
+                font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
+                cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
         # context.info(f'update {obs.shape} {obs.dtype}')
         jpg_data = rgb2jpg(obs)
@@ -578,8 +587,10 @@ class GymDuckiebotSimulator:
             # with timeit(step, context, min_warn=0, enabled=True):
             #     self.env.update_physics(last_action, delta_time=delta_time)
 
-            for pc_name, pc in self.pcs.items():
-                pc.integrate(delta_time)
+            with show_time(f'integrate'):
+                for pc_name, pc in self.pcs.items():
+                    with show_time(f'integrate-{pc_name}'):
+                        pc.integrate(delta_time)
 
             self.current_time = t1
 
@@ -587,12 +598,15 @@ class GymDuckiebotSimulator:
             # if self.current_time - self.last_render_time > render_dt:
             # step = f"update_physics_and_observations/step{i}/render t = {t1:.4f}"
             # with timeit(step, context, min_warn=0, enabled=profile_enabled):
-            self.render(context)
+            with show_time(f'render'):
+                self.render(context)
             # self.last_render_time = self.current_time
 
             # if self.current_time - last_observations_time >= sensor_dt:
-            for pc_name, pc in self.pcs.items():
-                pc.update_observations(context, self.current_time)
+            with show_time(f'update_observations'):
+                for pc_name, pc in self.pcs.items():
+                    with show_time(f'update_observations-{pc_name}'):
+                        pc.update_observations(context, self.current_time)
 
     def set_positions_and_commands(self, protagonist: RobotName):
         self.env.cur_pos = [-100.0, -100.0, -100.0]
@@ -644,12 +658,7 @@ class GymDuckiebotSimulator:
                 s = f"speed {speed:.3f} m/s, {angular_deg:.1f} deg/s - max pixel {self.config.max_pixel_mov}"
                 s += f" - need {want_fps} fps"
                 do_it = dt >= dt_max
-                # logger.info(f' {do_it} {s}')
-                # if do_it:
-                #     context.debug(
-                #         f'{pc_name} t {self.current_time:.4f} dt {dt:.3f} dt_max {dt_max:.3f} ({1 /
-                #         dt:.1f} fps) w {angular_deg:.1f} '
-                #         f'deg/s {do_it}')
+
             else:
                 do_it = True
                 s = ""
