@@ -65,6 +65,7 @@ from duckietown_world.world_duckietown.dynamics_delay import DelayedDynamics
 from duckietown_world.world_duckietown.pwm_dynamics import get_DB18_nominal
 from duckietown_world.world_duckietown.tile import translation_from_O3
 from duckietown_world.world_duckietown.tile_map import ij_from_tilename
+from gym_duckietown.distortion import Distortion
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.objects import DuckiebotObj, DuckieObj
 from gym_duckietown.objmesh import get_mesh
@@ -241,6 +242,7 @@ class PC(R):
         self.state = cast(DelayedDynamics, pdf.initialize(c0=c0, t0=0))
         black_obs = np.zeros((480, 640, 3), 'uint8')
         self.black_jpg_data = rgb2jpg(black_obs)
+        self.distortion = Distortion()
 
     def integrate(self, dt: float):
         self.state = self.state.integrate(dt, self.last_commands.wheels)
@@ -289,6 +291,7 @@ class PC(R):
                         obs0 += obs
                     obs = obs0 / len(to_average)
 
+            obs = self.distortion.distort(obs)
             obs = obs.astype("uint8")
             if self.termination is not None:
                 with profiler.prof('writing-wasted'):
@@ -372,7 +375,7 @@ class GymDuckiebotSimulator:
 
     dm: DuckietownMap
     profiler: Profiler
-
+    distort: bool
     def __init__(self):
         self.clear()
 
@@ -383,6 +386,11 @@ class GymDuckiebotSimulator:
 
     def init(self, context: Context):
         env_parameters = self.config.env_parameters or {}
+        distortion = env_parameters.get('distortion', False)
+        if distortion:
+            logger.info('setting distortion to False because we will do it')
+            env_parameters['distortion'] = False
+
         logger.info(config=self.config)
         environment_class = self.config.env_constructor
         name2class = {
