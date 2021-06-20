@@ -569,7 +569,8 @@ class GymDuckiebotSimulator:
             if delta_time > 0:
                 step = "update_physics_and_observations"
                 with profiler.prof('update_physics_and_observations'):
-                    with timeit(step, context, min_warn=0, enabled=profile_enabled):
+                    with timeit(step, context, min_warn=0, enabled=profile_enabled
+                                and self.step % 20 ==0):
                         self.update_physics_and_observations(until=data.until, context=context)
             else:
                 context.warning(f"Already at time {data.until}")

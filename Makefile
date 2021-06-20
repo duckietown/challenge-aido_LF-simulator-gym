@@ -1,3 +1,6 @@
+
+build-push:
+	dts build_utils aido-container-build --use-branch daffy --push
 build:
 	dts build_utils aido-container-build --use-branch daffy
 
