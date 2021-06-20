@@ -563,17 +563,17 @@ class GymDuckiebotSimulator:
 
         profile_enabled = self.config.debug_profile
         delta_time = data.until - self.current_time
-        step = f"stepping forward {int(delta_time * 1000)} s of simulation time"
+        # step = f"stepping forward {int(delta_time * 1000)} s of simulation time"
         t0 = time.time()
-        with timeit(step, context, min_warn=0, enabled=True):
-            if delta_time > 0:
-                step = "update_physics_and_observations"
-                with profiler.prof('update_physics_and_observations'):
-                    with timeit(step, context, min_warn=0, enabled=profile_enabled
-                                and self.step % 20 ==0):
-                        self.update_physics_and_observations(until=data.until, context=context)
-            else:
-                context.warning(f"Already at time {data.until}")
+        # with timeit(step, context, min_warn=0, enabled=True):
+        if delta_time > 0:
+            # step = "update_physics_and_observations"
+            with profiler.prof('update_physics_and_observations'):
+                # with timeit(step, context, min_warn=0, enabled=profile_enabled
+                #             and self.step % 20 ==0):
+                self.update_physics_and_observations(until=data.until, context=context)
+        else:
+            context.warning(f"Already at time {data.until}")
 
             # step = "on_received_step/_compute_done_reward"
             # with timeit(step, context, min_warn=0, enabled=profile_enabled):
@@ -592,7 +592,7 @@ class GymDuckiebotSimulator:
             """
             context.info(msg)
 
-        if self.step % 50 == 0:
+        if self.step % 200 == 0:
             with profiler.prof('gc-collect'):
                 gc.collect()
 
