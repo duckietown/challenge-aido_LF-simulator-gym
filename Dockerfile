@@ -1,5 +1,10 @@
 ARG AIDO_REGISTRY
-FROM ${AIDO_REGISTRY}/duckietown/gym-duckietown:daffy-amd64
+ARG ARCH=amd64
+ARG MAJOR=daffy
+ARG BASE_TAG=${MAJOR}-${ARCH}
+
+
+FROM ${AIDO_REGISTRY}/duckietown/gym-duckietown:${BASE_TAG}
 
 ARG PIP_INDEX_URL="https://pypi.org/simple"
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
