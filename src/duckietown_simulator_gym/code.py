@@ -87,16 +87,6 @@ CODE_OUT_OF_TILE = "out-of-tile"
 CODE_COLLISION = "collision"
 
 
-# from statistics import mean
-
-
-#
-# @contextmanager
-# def show_time(s: str):
-#     t0 = time.time()
-#     yield
-#     dt = time.time() - t0
-#     logger.debug(f'timer: {dt:.3f} for {s}')
 
 
 @dataclass

@@ -1,5 +1,10 @@
 ARG AIDO_REGISTRY
-FROM ${AIDO_REGISTRY}/duckietown/gym-duckietown:daffy-amd64
+ARG ARCH=amd64
+ARG MAJOR=daffy
+ARG BASE_TAG=${MAJOR}-${ARCH}
+
+
+FROM ${AIDO_REGISTRY}/duckietown/gym-duckietown:${BASE_TAG}
 
 ARG PIP_INDEX_URL="https://pypi.org/simple"
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
@@ -10,7 +15,6 @@ RUN apt-get update && apt-get install -y gcc
 
 RUN apt-get install -y xauth
 
-RUN python3 -m pip install -U "pip>=20.2"
 COPY requirements.* ./
 RUN cat requirements.* > .requirements.txt
 RUN python3 -m pip install  -r .requirements.txt
