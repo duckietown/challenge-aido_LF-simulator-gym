@@ -16,7 +16,9 @@ from zuper_commons.types import ZException, ZValueError
 from aido_agents.utils_leds import get_blinking_LEDs_emergency
 from aido_schemas import (
     DB20Commands,
-    DB20ObservationsWithTimestamp, DB20OdometryWithTimestamp, DB20RobotObservationsWithTimestamp,
+    DB20ObservationsWithTimestamp,
+    DB20OdometryWithTimestamp,
+    DB20RobotObservationsWithTimestamp,
     DB20SetRobotCommands,
     DTSimDuckieInfo,
     DTSimDuckieState,
@@ -29,7 +31,8 @@ from aido_schemas import (
     GetRobotObservations,
     GetRobotState,
     JPGImage,
-    JPGImageWithTimestamp, LEDSCommands,
+    JPGImageWithTimestamp,
+    LEDSCommands,
     Metric,
     PerformanceMetrics,
     PWMCommands,
@@ -85,8 +88,6 @@ from . import logger
 CODE_OUT_OF_LANE = "out-of-lane"
 CODE_OUT_OF_TILE = "out-of-tile"
 CODE_COLLISION = "collision"
-
-
 
 
 @dataclass
@@ -230,7 +231,7 @@ class PC(R):
         c0 = q, v
         self.pdf = pdf
         self.state = cast(DelayedDynamics, pdf.initialize(c0=c0, t0=0))
-        black_obs = np.zeros((480, 640, 3), 'uint8')
+        black_obs = np.zeros((480, 640, 3), "uint8")
         self.black_jpg_data = rgb2jpg(black_obs)
         self.distortion = Distortion()
 
@@ -271,7 +272,7 @@ class PC(R):
                     blur_time=self.blur_time,
                 )
 
-            with profiler.prof('averaging'):
+            with profiler.prof("averaging"):
                 if len(to_average) == 1:
                     obs = to_average[0]
                 else:
@@ -281,18 +282,18 @@ class PC(R):
                         obs0 += obs
                     obs = obs0 / len(to_average)
 
-            with profiler.prof('distortion'):
+            with profiler.prof("distortion"):
                 obs = self.distortion.distort(obs)
 
             obs = obs.astype("uint8")
             if self.termination is not None:
-                with profiler.prof('writing-wasted'):
+                with profiler.prof("writing-wasted"):
                     obs = rgb2grayed(obs)
                     font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX
                     cv2.putText(obs, "Wasted", (165, 100), font, 3, (255, 0, 0), 2, cv2.LINE_AA)
 
             # context.info(f'update {obs.shape} {obs.dtype}')
-            with profiler.prof('rgb2jpg'):
+            with profiler.prof("rgb2jpg"):
                 jpg_data = rgb2jpg(obs)
         else:
             jpg_data = self.black_jpg_data
@@ -379,10 +380,10 @@ class GymDuckiebotSimulator:
 
     def init(self, context: Context):
         env_parameters = self.config.env_parameters or {}
-        distortion = env_parameters.get('distortion', False)
+        distortion = env_parameters.get("distortion", False)
         if distortion:
-            logger.info('setting distortion to False because we will do it')
-            env_parameters['distortion'] = False
+            logger.info("setting distortion to False because we will do it")
+            env_parameters["distortion"] = False
 
         logger.info(config=self.config)
         environment_class = self.config.env_constructor
@@ -558,7 +559,7 @@ class GymDuckiebotSimulator:
         # with timeit(step, context, min_warn=0, enabled=True):
         if delta_time > 0:
             # step = "update_physics_and_observations"
-            with profiler.prof('update_physics_and_observations'):
+            with profiler.prof("update_physics_and_observations"):
                 # with timeit(step, context, min_warn=0, enabled=profile_enabled
                 #             and self.step % 20 ==0):
                 self.update_physics_and_observations(until=data.until, context=context)
@@ -583,10 +584,10 @@ class GymDuckiebotSimulator:
             context.info(msg)
 
         if self.step % 200 == 0:
-            with profiler.prof('gc-collect'):
+            with profiler.prof("gc-collect"):
                 gc.collect()
 
-            logger.info('stats\n\n' + profiler.show_stats())
+            logger.info("stats\n\n" + profiler.show_stats())
 
     def update_physics_and_observations(self, until: float, context: Context):
         profiler = context.get_profiler()
@@ -614,7 +615,7 @@ class GymDuckiebotSimulator:
             # with timeit(step, context, min_warn=0, enabled=True):
             #     self.env.update_physics(last_action, delta_time=delta_time)
 
-            with profiler.prof(f'integrate'):
+            with profiler.prof(f"integrate"):
                 for pc_name, pc in self.pcs.items():
                     with profiler.prof(pc_name):
                         pc.integrate(delta_time)
@@ -625,12 +626,12 @@ class GymDuckiebotSimulator:
             # if self.current_time - self.last_render_time > render_dt:
             # step = f"update_physics_and_observations/step{i}/render t = {t1:.4f}"
             # with timeit(step, context, min_warn=0, enabled=profile_enabled):
-            with profiler.prof(f'render'):
+            with profiler.prof(f"render"):
                 self.render(context)
             # self.last_render_time = self.current_time
 
             # if self.current_time - last_observations_time >= sensor_dt:
-            with profiler.prof(f'update_observations'):
+            with profiler.prof(f"update_observations"):
                 for pc_name, pc in self.pcs.items():
                     with profiler.prof(pc_name):
                         pc.update_observations(context, self.current_time, profiler)
@@ -829,13 +830,13 @@ class GymDuckiebotSimulator:
         all_robots.update(self.npcs)
         robot_states: Dict[str, DTSimRobotState]
 
-        with profiler.prof('_get_robot_state'):
+        with profiler.prof("_get_robot_state"):
             robot_states = {k: self._get_robot_state(k) for k in all_robots}
 
         the_robot: R
-        with profiler.prof('checking'):
+        with profiler.prof("checking"):
             for robot_name, the_robot in all_robots.items():
-                with profiler.prof('robot_name'):
+                with profiler.prof("robot_name"):
                     if the_robot.termination is not None:
                         continue
 
@@ -844,59 +845,64 @@ class GymDuckiebotSimulator:
                     terminate_on_static_collision = True
 
                     if terminate_on_static_collision:
-                        with profiler.prof('check-collision'):
+                        with profiler.prof("check-collision"):
                             cur_pos, cur_angle = self.env.weird_from_cartesian(q)
                             # noinspection PyProtectedMember
-                            collided = self.env._check_intersection_static_obstacles(np.array(cur_pos),
-                                                                                     cur_angle)
+                            collided = self.env._check_intersection_static_obstacles(
+                                np.array(cur_pos), cur_angle
+                            )
                             # logger.info(cur_pos=cur_pos, cur_angle=cur_angle,
                             # col=self.env.collidable_corners,
                             #             collided=collided)
                             if collided:
                                 msg = f"Robot {robot_name!r} collided with static obstacles."
-                                termination = Termination(when=self.current_time, desc=msg,
-                                                          code=CODE_OUT_OF_LANE)
+                                termination = Termination(
+                                    when=self.current_time, desc=msg, code=CODE_OUT_OF_LANE
+                                )
                                 the_robot.termination = termination
                                 halt_robot(the_robot, q)
                                 logger.error(robot_name=robot_name, termination=termination)
 
                     if self.config.terminate_on_ool:
-                        with profiler.prof('check-inside-lane'):
+                        with profiler.prof("check-inside-lane"):
                             lprs: List[GetLanePoseResult] = list(get_lane_poses(self.dm, q))
                             if not lprs:
                                 msg = f"Robot {robot_name!r} is out of the lane."
-                                termination = Termination(when=self.current_time, desc=msg,
-                                                          code=CODE_OUT_OF_LANE)
+                                termination = Termination(
+                                    when=self.current_time, desc=msg, code=CODE_OUT_OF_LANE
+                                )
                                 the_robot.termination = termination
                                 halt_robot(the_robot, q)
                                 logger.error(robot_name=robot_name, termination=termination)
 
                     if self.config.terminate_on_out_of_tile:
-                        with profiler.prof('check-on-a-tile'):
+                        with profiler.prof("check-on-a-tile"):
 
                             tile_coords = is_on_a_tile(self.dm, q)
                             if tile_coords is None:
                                 msg = f"Robot {robot_name!r} is out of tile."
-                                termination = Termination(when=self.current_time, desc=msg,
-                                                          code=CODE_OUT_OF_TILE)
+                                termination = Termination(
+                                    when=self.current_time, desc=msg, code=CODE_OUT_OF_TILE
+                                )
                                 the_robot.termination = termination
                                 halt_robot(the_robot, q)
                                 logger.error(robot_name=robot_name, termination=termination)
                     if self.config.terminate_on_collision:
-                        with profiler.prof('check-duckie-collision'):
+                        with profiler.prof("check-duckie-collision"):
 
                             for duckie_name, duckie in self.duckies.items():
                                 d = relative_pose(duckie.pose, q)
                                 dist = np.linalg.norm(translation_from_O3(d))
                                 if dist < self.config.duckie_collision_threshold:
                                     msg = f"Robot {robot_name!r} collided with duckie {duckie_name!r}."
-                                    termination = Termination(when=self.current_time, desc=msg,
-                                                              code=CODE_COLLISION)
+                                    termination = Termination(
+                                        when=self.current_time, desc=msg, code=CODE_COLLISION
+                                    )
                                     the_robot.termination = termination
                                     halt_robot(the_robot, q)
                                     logger.error(robot_name=robot_name, termination=termination)
 
-                        with profiler.prof('check-robot-collision'):
+                        with profiler.prof("check-robot-collision"):
                             for other_robot, its_state in robot_states.items():
                                 if other_robot == robot_name:
                                     continue
@@ -905,8 +911,9 @@ class GymDuckiebotSimulator:
                                 dist = np.linalg.norm(translation_from_O3(d))
                                 if dist < self.config.robot_collision_threshold:
                                     msg = f"Robot {robot_name!r} collided with {other_robot!r}"
-                                    termination = Termination(when=self.current_time, desc=msg,
-                                                              code=CODE_COLLISION)
+                                    termination = Termination(
+                                        when=self.current_time, desc=msg, code=CODE_COLLISION
+                                    )
                                     the_robot.termination = termination
                                     halt_robot(the_robot, q)
                                     logger.error(robot_name=robot_name, termination=termination)
@@ -924,7 +931,7 @@ class GymDuckiebotSimulator:
     def on_received_get_ui_image(self, context: Context):
         profiler = context.get_profiler()
 
-        with profiler.prof('set-positions'):
+        with profiler.prof("set-positions"):
             self.set_positions_and_commands(protagonist="")
         profile_enabled = self.config.debug_profile
 
@@ -939,7 +946,7 @@ class GymDuckiebotSimulator:
                 # noinspection PyProtectedMember
                 td = self.td
 
-                with profiler.prof('render'):
+                with profiler.prof("render"):
                     # noinspection PyProtectedMember
                     top_down_observation = self.env._render_img(
                         width=td.width,
@@ -951,7 +958,7 @@ class GymDuckiebotSimulator:
                     )
 
         # logger.info(shape=top_down_observation.shape)
-        with profiler.prof('rgb2jpg'):
+        with profiler.prof("rgb2jpg"):
             jpg_data = rgb2jpg(top_down_observation)
         jpg = JPGImage(jpg_data)
         context.write("ui_image", jpg)
