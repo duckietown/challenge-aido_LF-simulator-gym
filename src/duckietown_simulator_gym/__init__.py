@@ -1,4 +1,4 @@
-__version__ = "6.1.165"
+__version__ = "6.1.166"
 
 from zuper_commons.logs import ZLogger
 
