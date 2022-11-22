@@ -21,16 +21,17 @@ version = get_version(filename="src/duckietown_simulator_gym/__init__.py")
 
 line = "daffy"
 install_requires = [
-    "duckietown-gym-daffy",
-    "aido-agents-daffy",
-    "aido-protocols-daffy",
+    f"duckietown-gym-{line}",
+    f"aido-agents-{line}",
+    f"aido-protocols-{line}",
     "PyGeometry-z6",
     "zuper-nodes-z6",
     "zuper-commons-z6",
     "opencv-python",
     "PyYAML",
     "numpy",
-    "duckietown-world-daffy",
+    f"duckietown-world-{line}",
+    f"duckietown-utils-{line}",
 ]
 
 setup(
