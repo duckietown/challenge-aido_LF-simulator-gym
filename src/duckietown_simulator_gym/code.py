@@ -10,6 +10,8 @@ import geometry
 import math
 import numpy as np
 import yaml
+
+from duckietown_code_utils import import_name
 from geometry import se2_from_linear_angular, SE2value
 from zuper_commons.types import ZException, ZValueError
 
@@ -471,6 +473,20 @@ class GymDuckiebotSimulator:
         obj = DuckiebotObj(obj_desc, False, SAFETY_RAD_MULT, WHEEL_DIST, ROBOT_WIDTH, ROBOT_LENGTH)
 
         if data.playable:
+            dynamics = data.dynamics
+            dynamics_params = data.dynamics_params
+            try:
+
+                m = import_name(dynamics)
+            except Exception as e:
+                msg = "Cannot load dynamics for robot"
+                raise ZException(msg, data=data)
+
+            pdf = m(**dynamics_params)
+            if not isinstance(pdf, PlatformDynamicsFactory):
+                msg = f"Expected {dynamics} to be a PlatformDynamicsFactory."
+                raise ZException(msg)
+
             pdf: PlatformDynamicsFactory = get_DB18_nominal(delay=0.15)  # TODO: parametric
             pc = PC(
                 obj=obj,
