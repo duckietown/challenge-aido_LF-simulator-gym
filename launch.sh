@@ -28,7 +28,7 @@ sleep 2
 
 echo "$prefix Now running simulator" 1>&2
 #nice -n 20 node-launch --config node_launch.yaml
-nice -n 20 python3 gym_bridge.py 1>&2
+nice python3 gym_bridge.py 1>&2
 
 ret=$?
 echo "$prefix gym_simulation_launcher terminated with return code $ret" 1>&2
